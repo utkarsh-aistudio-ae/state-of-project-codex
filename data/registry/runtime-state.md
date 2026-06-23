@@ -35,6 +35,9 @@ Source cursors and report cursors are separate.
 - Shared datasources such as Gmail, Fireflies, Drive, and future chat readers
   must not be fetched once per project during reporting. One conversation can
   contain evidence for many projects.
+- Source cursors maintain `seen_keys` so readers can reuse the same untouched
+  source-log path for an already-seen artifact instead of creating duplicate
+  files and duplicate tagging work.
 - The report cursor advances only after the tagging worklist is clear,
   validation passes, extraction succeeds, and report generation succeeds.
 - Source fetches should use a lookback overlap, such as 48 hours, to catch late
@@ -104,6 +107,21 @@ from:
 
 This keeps queue state reproducible after restart. A persistent queue, cache,
 index, database, vector store, or service is a future architecture decision.
+
+The tagging worklist is shared across projects. Tagging must process only items
+where `work_required: true`; `current` items are skipped. The effective tagging
+cursor is the tagged file metadata:
+
+- `source_content_hash`
+- `registry_hash`
+- `tag_status`
+- `annotation_count`
+- `uncertain_annotation_count`
+
+This means a source artifact is retagged only when the source content changed,
+the project registry changed, a tagged copy is missing/prepared, or the tagger
+marked the file failed or in need of review. Project reports must not create
+separate per-project tagging passes.
 
 Prepared tagged files use `tag_status: "prepared"` and remain in the derived
 worklist as `needs_tagging` until Codex adds canonical annotations and reruns the

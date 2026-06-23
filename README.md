@@ -112,6 +112,10 @@ validates/extracts tagged evidence, writes a private report under
 `data/reports/`, records a private manifest under `logs/runs/`, and advances the
 project report cursor after the report stage succeeds.
 
+Fetching and tagging are shared source-artifact stages. Source cursors and
+tagged metadata decide whether work is required; project reports should not
+cause duplicate fetches or duplicate tagging passes.
+
 The current orchestration recipe is:
 
 ```text

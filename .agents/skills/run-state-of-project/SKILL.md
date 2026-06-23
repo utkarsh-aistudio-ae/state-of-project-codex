@@ -28,7 +28,9 @@ orchestrations/state-of-project-nightly.md
    ```
 
 2. If the derived worklist has non-current items, run the `project-tagger` skill
-   on the blocking untouched logs listed by `queue` or the manifest.
+   on the blocking untouched logs listed by `queue` or the manifest. Tagging is
+   shared source work: process only items with `work_required: true` and skip
+   `current` items.
 3. Confirm the project tag exists in `data/registry/project-tags.yaml`.
 4. Run:
 
@@ -71,6 +73,12 @@ Current skipped source gaps:
 The `queue` command is a derived filesystem worklist, not a durable queue. The
 report cursor advances only after the derived worklist is clear, validation
 passes, extraction succeeds, and the private report is written.
+
+Tagging uses source content hashes and registry hashes as its per-artifact
+cursor. It should not run once per project report, and it should not duplicate
+work for shared sources. A source artifact is retagged only when its source hash
+changes, the project registry changes, the tagged copy is missing/prepared, or
+the tagger explicitly marked the file failed or in need of review.
 
 ## Safety
 

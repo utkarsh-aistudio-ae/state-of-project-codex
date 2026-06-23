@@ -74,6 +74,10 @@ reports as source coverage gaps.
 - Shared datasources must be fetched once per source window, not once per
   project report. Tagging and extraction decide which blocks matter to which
   project.
+- Named/project-shaped datasources such as GitHub repos, Railway projects,
+  Vercel projects, or Notion spaces should still reuse stable source artifact
+  identities and cursor `seen_keys` so the same artifact is not fetched or
+  tagged repeatedly for multiple reports.
 - Source status must be recorded in run manifests.
 - A skipped source is not the same as a source with no data.
 - Presentation surfaces can provide pointers, but canonical backing sources

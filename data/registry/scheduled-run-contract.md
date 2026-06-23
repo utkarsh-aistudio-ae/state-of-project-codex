@@ -63,6 +63,8 @@ The current CLI assumes:
   are safely written.
 - Source cursors are scoped to shared data-fetch source families, not individual
   project reports.
+- Tagging is scoped to source artifacts, not individual project reports. The
+  derived worklist and tagged metadata decide whether tagging work is required.
 - The report cursor advances only when the derived tagging worklist is clear,
   validation passes, extraction succeeds, and report generation succeeds.
 - Runs with skipped source readers may write private data-fetch manifests; the

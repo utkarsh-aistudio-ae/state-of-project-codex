@@ -11,10 +11,22 @@ queue status, paths, hashes, validation, extraction, and manifests. Keep this
 skill generic and registry-driven; project-specific signals belong in the
 project registry or confirmed project profiles.
 
+Tagging is shared source work, not project-report work. A Gmail thread,
+Fireflies transcript, GitHub repo activity log, deployment record, or future
+Notion/Slack/Drive artifact should be tagged once per source artifact state, not
+once per project report. Project-specific reports consume extracted tagged
+evidence after tagging is current.
+
 ## Workflow
 
 1. Run `python3 scripts/project_intel.py queue` to see the derived tagging
    worklist. This command does not read or write a durable queue.
+   - Process only items where `work_required: true`.
+   - Skip `current` items; they already match the source content hash and
+     registry hash.
+   - Retag `stale_source` items because the source artifact changed.
+   - Retag `stale_registry` items because canonical project knowledge changed.
+   - Process `needs_tagging` items because no current tagged copy exists.
 2. Read these registry contracts before editing:
    - `data/registry/project-tags.yaml`
    - `data/registry/annotation-syntax.md`
@@ -38,6 +50,22 @@ project registry or confirmed project profiles.
     hash, and final tag status.
 12. Run `python3 scripts/project_intel.py validate` after metadata refresh.
 13. Run `python3 scripts/project_intel.py extract` only after validation passes.
+
+## Work Avoidance
+
+The effective tagging cursor is the tagged file frontmatter:
+
+- `source_content_hash`
+- `registry_hash`
+- `tag_status`
+- `annotation_count`
+- `uncertain_annotation_count`
+
+Do not create a separate tagged copy per project. Do not retag a source log just
+because a project report is being generated. If `queue` says the source log is
+`current`, leave it alone. If a shared source artifact has candidate projects in
+`fetch_context.project_candidates`, treat that as routing context only; it is not
+a project annotation and it does not remove the need for block-level judgment.
 
 ## Tagged File Metadata
 

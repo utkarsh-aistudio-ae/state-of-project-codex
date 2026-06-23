@@ -61,9 +61,11 @@ Future concepts:
 3. Run implemented source readers. GitHub and Gmail are currently implemented;
    Fireflies batch discovery, Drive, and deployment-provider-specific readers
    remain source coverage gaps until their readers exist.
-4. Build the derived tagging worklist from untouched/tagged files, source
+4. Build the derived shared tagging worklist from untouched/tagged files, source
    hashes, registry hash, and tagger metadata.
-5. If worklist items need tagging, run `project-tagger` before reporting.
+5. If worklist items need tagging, run `project-tagger` only on items where
+   `work_required: true`; skip `current` items. Tagging is shared source work,
+   not a per-project report pass.
 6. Confirm the report project tag exists and is active.
 7. Validate tagged logs.
 8. Extract tagged evidence records.
@@ -80,7 +82,8 @@ Future concepts:
 - If a source reader is not implemented, mark it `skipped`; do not pretend it
   was checked.
 - If source coverage gaps exist, record them in the data-fetch manifest.
-- If tagging is required, stop report generation before validation/extraction.
+- If tagging is required, stop report generation before validation/extraction
+  until the shared tagging worklist is current.
 - If validation fails, stop before extraction/reporting.
 - If uncertain evidence exists, include it in review sections; do not use it as
   authoritative source for timeline entries or tickets.

@@ -747,6 +747,24 @@ def source_log_path(source: str, occurred_at: datetime, filename: str) -> Path:
     return ROOT / "data" / "raw" / "untouched" / source / month / day / filename
 
 
+def seen_source_path(seen_keys: dict[str, Any] | None, source_key: str) -> Path | None:
+    if not isinstance(seen_keys, dict):
+        return None
+    record = seen_keys.get(source_key)
+    if not isinstance(record, dict):
+        return None
+    path_value = record.get("path")
+    if not isinstance(path_value, str) or not path_value.strip():
+        return None
+    path = resolve_path_argument(path_value)
+    untouched_root = ROOT / "data" / "raw" / "untouched"
+    try:
+        path.relative_to(untouched_root)
+    except ValueError:
+        return None
+    return path
+
+
 def datetime_from_epoch_millis(value: Any) -> datetime | None:
     if not isinstance(value, (int, float)):
         return None
@@ -938,6 +956,7 @@ def render_gmail_thread(
     query: str | None,
     search_summary: dict[str, Any] | None,
     source_payload: Any,
+    path_override: Path | None = None,
 ) -> SourceLogRender:
     if not isinstance(source_payload, dict) or not isinstance(source_payload.get("thread"), dict):
         raise RuntimeError("Gmail thread response missing `thread` object")
@@ -967,7 +986,7 @@ def render_gmail_thread(
     content_hash = json_hash(source_payload)
     source_ref = gmail_thread_ref(thread_id)
     filename = f"thread_{safe_slug(thread_id)}_{format_hhmm(occurred_at)}.md"
-    path = source_log_path(GMAIL_SOURCE, occurred_at, filename)
+    path = path_override or source_log_path(GMAIL_SOURCE, occurred_at, filename)
 
     metadata: dict[str, Any] = {
         "source": GMAIL_SOURCE,
@@ -1068,13 +1087,14 @@ def render_github_repo_activity(
     start: datetime,
     end: datetime,
     payload: dict[str, Any],
+    path_override: Path | None = None,
 ) -> SourceLogRender:
     metadata_payload = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
     repo_name = str(metadata_payload.get("nameWithOwner") or repo)
     source_ref = str(metadata_payload.get("url") or f"https://github.com/{repo}")
     content_hash = json_hash(payload)
-    filename = f"repo_{repo_slug(repo)}_{format_hhmm(end)}.md"
-    path = source_log_path(GITHUB_SOURCE, end, filename)
+    filename = f"repo_{repo_slug(repo)}_activity.md"
+    path = path_override or source_log_path(GITHUB_SOURCE, end, filename)
     title = f"GitHub Activity: {repo_name}"
 
     metadata: dict[str, Any] = {
@@ -1372,6 +1392,7 @@ def gmail_fetch_thread_log(
     family: dict[str, Any],
     query: str | None = None,
     search_summary: dict[str, Any] | None = None,
+    path_override: Path | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     config = reader_config(family)
     prefix = command_prefix(config, "bin/gog-sharad")
@@ -1392,7 +1413,7 @@ def gmail_fetch_thread_log(
         "--sanitize-content",
     ]
     payload = run_json_command(command)
-    rendered = render_gmail_thread(fetch_context, query, search_summary, payload)
+    rendered = render_gmail_thread(fetch_context, query, search_summary, payload, path_override=path_override)
     _result, file_record = write_rendered_source_log(rendered)
     seen_record = {
         "source_id": rendered.source_id,
@@ -1411,6 +1432,7 @@ def gmail_fetch_project_logs(
     family: dict[str, Any],
     registry: ProjectRegistry,
     max_threads: int | None = None,
+    existing_seen_keys: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     query, summaries = gmail_search_project_threads(project, start, end, family, registry, max_threads=max_threads)
     fetch_context = {
@@ -1426,7 +1448,14 @@ def gmail_fetch_project_logs(
         if not thread_id:
             continue
         try:
-            file_record, seen_record = gmail_fetch_thread_log(fetch_context, thread_id, family, query, summary)
+            file_record, seen_record = gmail_fetch_thread_log(
+                fetch_context,
+                thread_id,
+                family,
+                query,
+                summary,
+                path_override=seen_source_path(existing_seen_keys, thread_id),
+            )
         except Exception as exc:  # noqa: BLE001 - keep source-reader failure visible.
             errors.append(f"{thread_id}: {exc}")
             continue
@@ -1458,6 +1487,7 @@ def gmail_fetch_registry_logs(
     end: datetime,
     family: dict[str, Any],
     registry: ProjectRegistry,
+    existing_seen_keys: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     config = reader_config(family)
     max_threads = parse_int(str(config.get("default_max_threads", 10))) or 10
@@ -1528,6 +1558,7 @@ def gmail_fetch_registry_logs(
                 family,
                 info["queries"][0] if info["queries"] else None,
                 info["summary"],
+                path_override=seen_source_path(existing_seen_keys, thread_id),
             )
         except Exception as exc:  # noqa: BLE001 - keep source-reader failure visible.
             errors.append(f"{thread_id}: {exc}")
@@ -1703,9 +1734,10 @@ def github_fetch_repo_log(
     start: datetime,
     end: datetime,
     family: dict[str, Any],
+    path_override: Path | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     payload = github_fetch_repo_payload(repo, start, end, family)
-    rendered = render_github_repo_activity(fetch_context, repo, start, end, payload)
+    rendered = render_github_repo_activity(fetch_context, repo, start, end, payload, path_override=path_override)
     _result, file_record = write_rendered_source_log(rendered)
     seen_record = {
         "source_id": rendered.source_id,
@@ -1723,6 +1755,7 @@ def github_fetch_project_logs(
     end: datetime,
     family: dict[str, Any],
     registry: ProjectRegistry,
+    existing_seen_keys: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     repos = project_repos(project_profile(project, registry))
     if not repos:
@@ -1743,7 +1776,14 @@ def github_fetch_project_logs(
             "project_candidates": [project],
         }
         try:
-            file_record, seen_record = github_fetch_repo_log(fetch_context, repo, start, end, family)
+            file_record, seen_record = github_fetch_repo_log(
+                fetch_context,
+                repo,
+                start,
+                end,
+                family,
+                path_override=seen_source_path(existing_seen_keys, repo),
+            )
         except Exception as exc:  # noqa: BLE001 - keep source-reader failure visible.
             errors.append(f"{repo}: {exc}")
             continue
@@ -1773,6 +1813,7 @@ def github_fetch_registry_logs(
     end: datetime,
     family: dict[str, Any],
     registry: ProjectRegistry,
+    existing_seen_keys: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     repo_profiles = registry_repo_profiles(registry)
     if not repo_profiles:
@@ -1793,7 +1834,14 @@ def github_fetch_registry_logs(
             "project_candidates": sorted(project_candidates),
         }
         try:
-            file_record, seen_record = github_fetch_repo_log(fetch_context, repo, start, end, family)
+            file_record, seen_record = github_fetch_repo_log(
+                fetch_context,
+                repo,
+                start,
+                end,
+                family,
+                path_override=seen_source_path(existing_seen_keys, repo),
+            )
         except Exception as exc:  # noqa: BLE001 - keep source-reader failure visible.
             errors.append(f"{repo}: {exc}")
             continue
@@ -1827,6 +1875,12 @@ def parse_int(value: str | None) -> int:
         return 0
 
 
+def finalize_queue_item(item: dict[str, Any]) -> dict[str, Any]:
+    item["work_required"] = item.get("status") != "current"
+    item["work_type"] = "tagging" if item["work_required"] else "none"
+    return item
+
+
 def queue_item_for_untouched(untouched_path: Path, current_registry_hash: str | None) -> dict[str, Any]:
     source_metadata = read_frontmatter(untouched_path)
     source_hash = source_metadata.get("content_hash")
@@ -1841,7 +1895,7 @@ def queue_item_for_untouched(untouched_path: Path, current_registry_hash: str | 
     if not tagged_path.exists():
         item["status"] = "needs_tagging"
         item["reason"] = "tagged file does not exist"
-        return item
+        return finalize_queue_item(item)
 
     tagged_metadata = read_frontmatter(tagged_path)
     item["tag_status"] = tagged_metadata.get("tag_status")
@@ -1874,7 +1928,7 @@ def queue_item_for_untouched(untouched_path: Path, current_registry_hash: str | 
     else:
         item["status"] = "current"
         item["reason"] = "tagged file metadata matches source and registry"
-    return item
+    return finalize_queue_item(item)
 
 
 def build_queue_payload() -> dict[str, Any]:
@@ -2471,10 +2525,16 @@ def execute_data_fetches(
 
         try:
             family = source_family_named(source)
+            existing_cursor = read_json_file(resolve_path_argument(str(updated["cursor_path"])), {})
+            existing_seen_keys = (
+                existing_cursor.get("seen_keys")
+                if isinstance(existing_cursor.get("seen_keys"), dict)
+                else {}
+            )
             if source == GITHUB_SOURCE:
-                result = github_fetch_registry_logs(start, end, family, registry)
+                result = github_fetch_registry_logs(start, end, family, registry, existing_seen_keys=existing_seen_keys)
             elif source == GMAIL_SOURCE:
-                result = gmail_fetch_registry_logs(start, end, family, registry)
+                result = gmail_fetch_registry_logs(start, end, family, registry, existing_seen_keys=existing_seen_keys)
             else:
                 result = {
                     "status": "skipped",
@@ -2699,7 +2759,7 @@ def run_state_report(args: argparse.Namespace) -> int:
         queue_payload = build_queue_payload()
         blocking_items = [
             item for item in queue_payload["items"]
-            if item["status"] != "current"
+            if item.get("work_required")
         ]
 
         manifest["registry_hash"] = registry.hash
@@ -2858,6 +2918,12 @@ def print_reader_result(label: str, result: dict[str, Any]) -> None:
         print(f"- error: {error}", file=sys.stderr)
 
 
+def shared_seen_keys(source: str) -> dict[str, Any]:
+    cursor = read_json_file(data_fetch_cursor_path(source), {})
+    seen_keys = cursor.get("seen_keys")
+    return dict(seen_keys) if isinstance(seen_keys, dict) else {}
+
+
 def gmail_fetch_project(args: argparse.Namespace) -> int:
     registry = load_project_registry()
     if args.project not in registry.project_tags:
@@ -2872,6 +2938,7 @@ def gmail_fetch_project(args: argparse.Namespace) -> int:
         family,
         registry,
         max_threads=args.max_threads,
+        existing_seen_keys=shared_seen_keys(GMAIL_SOURCE),
     )
     print_reader_result(f"Gmail project fetch {args.project}", result)
     return 0 if result.get("status") == "ok" else 1
@@ -2887,7 +2954,12 @@ def gmail_fetch_thread(args: argparse.Namespace) -> int:
         "scope": "manual-project-fetch",
         "project_candidates": [args.project],
     }
-    file_record, _seen_record = gmail_fetch_thread_log(fetch_context, args.thread_id, family)
+    file_record, _seen_record = gmail_fetch_thread_log(
+        fetch_context,
+        args.thread_id,
+        family,
+        path_override=seen_source_path(shared_seen_keys(GMAIL_SOURCE), args.thread_id),
+    )
     print(f"Gmail thread fetched: {args.thread_id}")
     print(f"- {file_record['status']}: {file_record['path']}")
     return 0
@@ -2900,7 +2972,14 @@ def github_fetch_project(args: argparse.Namespace) -> int:
         return 2
     start, end = parse_reader_window(args)
     family = source_family_named(GITHUB_SOURCE)
-    result = github_fetch_project_logs(args.project, start, end, family, registry)
+    result = github_fetch_project_logs(
+        args.project,
+        start,
+        end,
+        family,
+        registry,
+        existing_seen_keys=shared_seen_keys(GITHUB_SOURCE),
+    )
     print_reader_result(f"GitHub project fetch {args.project}", result)
     return 0 if result.get("status") == "ok" else 1
 
@@ -2916,7 +2995,14 @@ def github_fetch_repo(args: argparse.Namespace) -> int:
         "scope": "manual-project-fetch",
         "project_candidates": [args.project],
     }
-    file_record, _seen_record = github_fetch_repo_log(fetch_context, args.repo, start, end, family)
+    file_record, _seen_record = github_fetch_repo_log(
+        fetch_context,
+        args.repo,
+        start,
+        end,
+        family,
+        path_override=seen_source_path(shared_seen_keys(GITHUB_SOURCE), args.repo),
+    )
     print(f"GitHub repo fetched: {args.repo}")
     print(f"- {file_record['status']}: {file_record['path']}")
     return 0
