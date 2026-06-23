@@ -32,6 +32,18 @@ edit immediately. Batch coherent changes after they pass local checks.
 Never push auth material, private transcripts, email exports, Drive downloads,
 runtime manifests with private content, or generated derived records.
 
+## Architecture Decision Rule
+
+Project Intel is a long-term, multi-datasource internal intelligence system for
+production client work. Do not treat the current Fireflies/Argos slice as the
+architecture.
+
+Codex may implement deterministic helpers, readers, validators, extractors, and
+skills that preserve agreed contracts. Larger architecture choices, including
+orchestration boundaries, queue storage, scheduler model, state stores,
+database/index introduction, review UX, and external-write pipelines, require
+explicit user discussion before being encoded as durable design.
+
 ## Current CLI
 
 The first implemented slice fetches one Fireflies transcript and writes:

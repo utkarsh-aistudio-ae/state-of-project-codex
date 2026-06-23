@@ -31,3 +31,6 @@ Supported annotations:
 - The tagger must use canonical tags from `project-tags.yaml` only.
 - The tagger may suggest registry additions later, but must not create them
   silently.
+- Generic tagging skills and scripts must not hardcode project-specific signals.
+  Project-specific aliases, strong signals, weak signals, repos, domains, and
+  people belong in the registry or confirmed project profiles.

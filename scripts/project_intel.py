@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""Thin Project Intel orchestrator.
+"""Project Intel deterministic CLI for current source-log contracts.
 
 First supported slice:
 
     Fireflies transcript -> untouched Markdown
 
 Tagging is performed by Codex through the project-tagger skill. The script owns
-deterministic state: paths, hashes, queue status, manifests, and later
-validation/extraction.
+deterministic mechanics for the current prototype: paths, hashes, queue status,
+manifests, validation, and extraction.
+
+This file is not the final orchestration architecture. Long-term scheduling,
+durable queue storage, datasource coordination, service boundaries, and review
+UX are user-owned architecture decisions.
 """
 
 from __future__ import annotations
@@ -909,7 +913,7 @@ def not_implemented(command_name: str) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Project Intel thin orchestrator")
+    parser = argparse.ArgumentParser(description="Project Intel deterministic CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     fireflies = subparsers.add_parser("fireflies", help="Fireflies source reader commands")

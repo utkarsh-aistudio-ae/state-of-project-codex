@@ -84,6 +84,11 @@ Fireflies reader
   -> run summary
 ```
 
+This first slice is a production-seed, not a toy MVP. It should establish
+contracts that can scale to many datasources, many projects, enterprise client
+contexts, and future human-approved external writes. Do not introduce shortcuts
+that make source state, tagging state, or evidence provenance ambiguous.
+
 First target artifact:
 
 ```text
@@ -265,7 +270,9 @@ Acceptance criteria:
 
 ## Phase 2: Create Thin Orchestrator Skeleton
 
-Build the orchestrator early, but keep it thin.
+Build only a thin deterministic CLI for the currently agreed contracts. Do not
+decide the long-term orchestration architecture in code without the user's
+explicit architectural direction.
 
 Recommended file:
 
@@ -279,8 +286,10 @@ Alternative acceptable shape:
 scripts/run_project_intel.py
 ```
 
-Prefer Python for the orchestrator because it will handle paths, hashes, JSON,
-YAML, subprocess calls, and idempotency. Shell wrappers can be added later.
+Prefer Python for the current CLI because it handles paths, hashes, JSON,
+subprocess calls, and idempotency. This does not decide whether the final
+orchestration layer is a CLI, Codex automation, service, SDK workflow, database
+backed process, plugin, or MCP server.
 
 Initial command shape:
 
@@ -332,6 +341,9 @@ Acceptance criteria:
 - untouched file is not modified once written unless source content hash changes
 - tagged file is not churned if no content/tag changes are needed
 - failures are visible in the run manifest or logs
+- CLI behavior remains replaceable by a future orchestration architecture
+- architectural decisions are captured as open decisions rather than silently
+  encoded in implementation structure
 
 ## Phase 3: Fireflies Reader
 
@@ -417,8 +429,10 @@ or as a subcommand in:
 scripts/project_intel.py tag <file>
 ```
 
-The first version may be project-specific for `Argos-ddt`, but it must read the
-registry and use canonical tags only.
+The tagger skill must be generic and registry-driven. It may process the first
+Argos fixture, but project-specific signals belong in
+`data/registry/project-tags.yaml` or confirmed project profiles, not hardcoded
+inside generic skills or scripts.
 
 Tagging behavior:
 
@@ -453,6 +467,17 @@ Potential future improvement:
 
 - Once `Project-intel` becomes a canonical tag through `initiate-project`, these
   same logs can be retagged to assign internal automation discussion properly.
+
+Status semantics:
+
+- `tagged`: processed under the current registry with no blocking uncertainty
+- `needs_review`: actual ambiguity, conflict, or uncertainty blocks downstream
+  authoritative use
+- `failed`: tagging was attempted and could not complete
+- `needs_tagging`, `stale_source`, and `stale_registry` are derived queue states,
+  not tagger judgments
+- Do not use `needs_review` merely because a block is `untagged` under the
+  current registry
 
 Acceptance criteria:
 
@@ -733,6 +758,15 @@ After registry update:
 - support explicit older backfill by date range, source, or project
 - avoid churn
 
+Architectural boundary:
+
+- `initiate-project` proposes profiles and retag windows.
+- `project-tag-registry` governs canonical registry changes.
+- `project-tagger` obeys the registry.
+- The long-term orchestration mechanism for scheduling, retrying, persisting
+  queues, and coordinating multi-source runs is an open architecture decision
+  for the user, not an implementation detail to settle inside this phase.
+
 Acceptance criteria:
 
 - no new project tag is silently created
@@ -960,10 +994,17 @@ Existing Project Intel prototype:
 
 ## Open Decisions
 
-These can be decided during implementation:
+These should be discussed explicitly before being encoded as durable
+architecture:
 
-- Whether to keep all Python in one `scripts/project_intel.py` CLI or split into
-  small scripts.
+- Long-term orchestration architecture:
+  - Codex app automation vs CLI vs service vs SDK workflow vs GitHub Action
+  - where durable queues/indexes/manifests live
+  - whether and when to introduce a database, vector index, or MCP service
+  - how review queues are owned and surfaced
+  - how external writes are approved and executed
+- Short-term code organization for deterministic helpers can be adjusted during
+  implementation only when it does not pre-decide the long-term architecture.
 - Exact Markdown rendering of Fireflies transcript blocks.
 - Whether the first tagger is heuristic/deterministic, LLM-driven, or a hybrid.
 - Where to store review queues:

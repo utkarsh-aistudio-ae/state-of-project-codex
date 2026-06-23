@@ -7,7 +7,9 @@ description: Annotate Project Intel source logs with canonical project tags. Use
 
 Use this skill to turn untouched Project Intel source logs into tagged Markdown
 working copies. Codex provides the project judgment; deterministic scripts own
-queue status, paths, hashes, validation, extraction, and manifests.
+queue status, paths, hashes, validation, extraction, and manifests. Keep this
+skill generic and registry-driven; project-specific signals belong in the
+project registry or confirmed project profiles.
 
 ## Workflow
 
@@ -29,6 +31,8 @@ queue status, paths, hashes, validation, extraction, and manifests.
    AiStudio project.
 10. Keep source text faithful. Do not summarize the whole document inside tag
     notes.
+11. Run `python3 scripts/project_intel.py validate` after editing.
+12. Run `python3 scripts/project_intel.py extract` only after validation passes.
 
 ## Tagged File Metadata
 
@@ -55,20 +59,21 @@ tagging was attempted but could not be completed.
 
 Allowed forms are defined in `data/registry/annotation-syntax.md`.
 
-For the initial registry, the only canonical project tag is `Argos-ddt`; the
-only special tag is `untagged`.
+Use confirmed tags only when the block clearly belongs to a registered project.
+Use `[?Project]` for plausible but unsafe assignments. Weak signals alone are
+not enough for a confirmed project tag.
 
-Use confirmed tags only when the block clearly belongs to the project. Strong
-Argos signals include Frama, Argos, DDT, Documento di Trasporto, Zucchetti,
-ARGOS_90, ARGOS_TEST_900, ARGOSAIDDT, Nanonets, SFTP, Cambiago, and the Argos
-repos.
+Read `data/registry/project-tags.yaml` every time this skill runs. Treat
+registry fields as follows:
 
-Treat people names, generic AiStudio discussion, and broad automation talk as
-weak signals. Weak signals alone are not enough for a confirmed project tag.
-
-Until a `Project-intel` canonical tag exists, internal Project Intel discussion
-is `untagged` unless it has a specific Argos-ddt connection. Future retagging
-can recover that meaning after the registry changes.
+- `aliases`, `strong_signals`, repos, domains, product names, client terms, and
+  source-specific identifiers are the primary evidence for project assignment.
+- `weak_signals` such as common people or generic company terms are supporting
+  context only.
+- `untagged` means the content is not assigned to a project in the current
+  registry. It does not mean useless forever.
+- Future registry changes should be handled through `stale_registry` retagging,
+  not by overloading `needs_review`.
 
 ## Safety
 

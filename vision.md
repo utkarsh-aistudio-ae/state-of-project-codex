@@ -78,6 +78,47 @@ The long-term product should evolve through three trust levels:
 Autonomous execution is deliberately not the first milestone. Trust starts with
 correct source capture, tagging, and human-reviewed reports.
 
+## Production-Grade Design Principles
+
+Project Intel is intended to support enterprise client projects where wrong
+state, wrong tickets, or wrong external writes can create real business risk.
+Every prototype step should therefore be a small version of the long-term
+system, not a shortcut that later has to be unlearned.
+
+Durable principles:
+
+- Treat source capture, tagging, extraction, reporting, task creation, and
+  execution as separate lifecycle stages.
+- Make state reproducible after process restart. Do not rely on in-memory queues
+  for durable workflow state.
+- Preserve original source artifacts and link every downstream claim back to
+  evidence.
+- Keep project identity in a governed registry. Do not hardcode project-specific
+  signals into generic skills or scripts.
+- Separate Codex judgment from deterministic enforcement. Codex can reason,
+  classify, summarize, and propose; scripts validate contracts, hashes, paths,
+  statuses, extraction, and write boundaries.
+- Prefer explicit status semantics over overloaded status labels.
+- Prefer recent-state correctness over premature historical omniscience. Use
+  explicit backfill policies for older history.
+- Design for multiple sources from the beginning, even when the first slice uses
+  one source.
+- Treat external writes as a later, human-approved trust level.
+
+Core domain objects that should remain conceptually distinct:
+
+- source artifact
+- source occurrence
+- project profile
+- registry version
+- tagging run
+- annotation
+- uncertainty/review item
+- extracted evidence record
+- timeline/report entry
+- proposed task/ticket/action
+- approved external write
+
 ## The First Local Prototype
 
 This workspace is a separate local Codex automation sandbox. It should not
@@ -370,11 +411,14 @@ independently.
 
 ## Orchestration Philosophy
 
-An orchestrator is needed, but it should be built in two passes.
+An orchestration layer is needed, but its final architecture is a user-owned
+product and systems decision. Codex may build thin deterministic utilities that
+preserve current contracts, but should not silently decide the long-term
+orchestration architecture, module boundaries, scheduler model, queue storage,
+state store, or service boundaries.
 
-First pass: thin orchestrator skeleton.
+Current implementation may provide a thin CLI that enforces the agreed pipeline:
 
-It should enforce the pipeline:
 
 ```text
 reader -> untouched log -> tagging queue -> tagger -> tagged copy -> validation -> run summary
@@ -383,22 +427,21 @@ reader -> untouched log -> tagging queue -> tagger -> tagged copy -> validation 
 It should not attempt full scheduling, multi-source retries, timeline generation,
 or issue creation at the beginning.
 
-Second pass: full orchestration.
+Long-term orchestration topics to discuss explicitly before implementation:
 
-It can later handle:
+- CLI vs app automation vs service vs CI responsibilities
+- source cursor and deduplication ownership
+- queue/index/cache storage and rebuild rules
+- run manifest and audit-log schema
+- retry, backoff, and partial-failure semantics
+- review queue ownership and UX
+- report/timeline state model
+- external write approval and execution pipeline
+- when to introduce databases, vector indexes, embeddings, or MCP services
+- how skills, plugins, hooks, and deterministic scripts are packaged
 
-- multiple sources
-- cursors
-- run manifests
-- retries
-- review queues
-- report generation
-- timeline updates
-- issue proposals
-- scheduled daily runs
-
-The skeleton should be built early enough to keep contracts honest, but not so
-heavy that every skill has to be designed up front.
+Until those decisions are made, implementation should stay conservative:
+source-log-first, local, reproducible, read-mostly, and easy to replace.
 
 ## Long-Term Skill/Module Shape
 
