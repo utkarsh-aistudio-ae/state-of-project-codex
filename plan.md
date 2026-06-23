@@ -307,6 +307,18 @@ Or one combined first-slice command:
 python3 scripts/project_intel.py run-fireflies 01KV7H2GX5ACK0J3T8W5K1WHD2
 ```
 
+Nightly project-run skeleton:
+
+```bash
+python3 scripts/project_intel.py run-project Argos-ddt
+```
+
+The external scheduler owns timing. `run-project` computes filesystem cursor
+windows, records source coverage gaps for unimplemented batch readers, requires
+the tagging worklist to be clear, validates/extracts evidence, writes a private
+state-of-project report, writes a private run manifest, and advances the report
+cursor only when source coverage is acceptable and the run succeeds.
+
 Skeleton responsibilities:
 
 - call the relevant reader
@@ -915,7 +927,9 @@ scripts/validate_tagged_logs.py        # if separate
 scripts/extract_tagged_notes.py        # if separate
 
 data/derived/tagged-notes.jsonl
+data/reports/Argos-ddt/<YYYY-MM-DD>/<run-id>_state-of-project.md
 logs/runs/<run-id>/manifest.json
+state/cursors/Argos-ddt/report.json
 ```
 
 Definition of done:

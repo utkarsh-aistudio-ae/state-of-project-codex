@@ -23,13 +23,14 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
 FIREFLIES_SOURCE = "Fireflies"
+DEFAULT_PROJECT_SOURCES = ("GitHub", "Gmail", "Fireflies", "Drive")
 UTC = timezone.utc
 ANNOTATION_RE = re.compile(r"^\[([?]?[A-Za-z0-9-]+)\] \{([^}]*)\}$")
 POSSIBLE_ANNOTATION_RE = re.compile(r"^\[[^\]]+\]\s*\{.*\}$")
@@ -66,8 +67,24 @@ def utc_now() -> datetime:
     return datetime.now(UTC).replace(microsecond=0)
 
 
+def make_run_id(dt: datetime | None = None) -> str:
+    return iso(dt or utc_now()).replace(":", "").replace("-", "")
+
+
 def iso(dt: datetime) -> str:
     return dt.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def parse_iso_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def format_hhmm(dt: datetime) -> str:
@@ -204,6 +221,20 @@ def write_text_if_changed(path: Path, content: str) -> WriteResult:
             return WriteResult(path, "unchanged")
     path.write_text(content, encoding="utf-8")
     return WriteResult(path, "written")
+
+
+def read_json_file(path: Path, default: Any) -> Any:
+    if not path.exists():
+        return default
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return default
+
+
+def write_json_if_changed(path: Path, payload: Any) -> WriteResult:
+    text = json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+    return write_text_if_changed(path, text)
 
 
 def write_untouched(path: Path, content: str, content_hash: str) -> WriteResult:
@@ -487,11 +518,19 @@ def validation_report_path(run_id: str) -> Path:
     return ROOT / "logs" / "validation" / f"{run_id}.json"
 
 
+def cursor_path(project: str, name: str) -> Path:
+    return ROOT / "state" / "cursors" / project / f"{name}.json"
+
+
+def report_path(project: str, run_id: str, ended_at: datetime) -> Path:
+    day = ended_at.strftime("%Y-%m-%d")
+    return ROOT / "data" / "reports" / project / day / f"{run_id}_state-of-project.md"
+
+
 def fireflies_fetch(args: argparse.Namespace) -> int:
     source_id = args.source_id
     command = [str(ROOT / "bin" / "fireflies-team"), "transcript", source_id, "--full"]
-    run_id = iso(utc_now()).replace(":", "").replace("-", "")
-    run_id = run_id.replace("T", "T").replace("Z", "Z")
+    run_id = make_run_id()
     manifest: dict[str, Any] = {
         "run_id": run_id,
         "timestamp": iso(utc_now()),
@@ -596,7 +635,7 @@ def queue_item_for_untouched(untouched_path: Path, current_registry_hash: str | 
     return item
 
 
-def queue(args: argparse.Namespace) -> int:
+def build_queue_payload() -> dict[str, Any]:
     untouched_root = ROOT / "data" / "raw" / "untouched"
     current_registry_hash = registry_hash()
     items = [
@@ -614,6 +653,13 @@ def queue(args: argparse.Namespace) -> int:
         "counts": counts,
         "items": items,
     }
+    return payload
+
+
+def queue(args: argparse.Namespace) -> int:
+    payload = build_queue_payload()
+    items = payload["items"]
+    counts = payload["counts"]
 
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -787,7 +833,7 @@ def validate_tagged_logs(write_report: bool = True) -> tuple[dict[str, Any], Pat
     if not write_report:
         return report, None
 
-    run_id = iso(utc_now()).replace(":", "").replace("-", "")
+    run_id = make_run_id()
     path = validation_report_path(run_id)
     write_text_if_changed(path, json.dumps(report, indent=2, sort_keys=True) + "\n")
     return report, path
@@ -883,6 +929,21 @@ def extract_records_from_file(path: Path, registry: ProjectRegistry) -> list[dic
     return records
 
 
+def extract_all_records() -> list[dict[str, Any]]:
+    registry = load_project_registry()
+    records: list[dict[str, Any]] = []
+    for path in iter_tagged_logs():
+        records.extend(extract_records_from_file(path, registry))
+    return records
+
+
+def write_extracted_records(records: list[dict[str, Any]]) -> WriteResult:
+    output_path = ROOT / "data" / "derived" / "tagged-notes.jsonl"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = "".join(json.dumps(record, sort_keys=True, ensure_ascii=False) + "\n" for record in records)
+    return write_text_if_changed(output_path, payload)
+
+
 def extract(args: argparse.Namespace) -> int:
     validation_report, _path = validate_tagged_logs(write_report=False)
     if validation_report["status"] != "ok":
@@ -890,20 +951,295 @@ def extract(args: argparse.Namespace) -> int:
         print(f"- errors: {validation_report['error_count']}", file=sys.stderr)
         return 1
 
-    registry = load_project_registry()
-    records: list[dict[str, Any]] = []
-    for path in iter_tagged_logs():
-        records.extend(extract_records_from_file(path, registry))
-
-    output_path = ROOT / "data" / "derived" / "tagged-notes.jsonl"
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = "".join(json.dumps(record, sort_keys=True, ensure_ascii=False) + "\n" for record in records)
-    write_text_if_changed(output_path, payload)
-
+    records = extract_all_records()
+    result = write_extracted_records(records)
     uncertain_count = sum(1 for record in records if record.get("uncertain"))
     print(f"Extracted tagged notes: {len(records)}")
     print(f"- uncertain: {uncertain_count}")
-    print(f"- output: {ensure_relative(output_path)}")
+    print(f"- output: {ensure_relative(result.path)}")
+    return 0
+
+
+def compute_source_window(cursor: dict[str, Any], now: datetime) -> tuple[datetime, datetime, int]:
+    overlap_hours = parse_int(str(cursor.get("lookback_overlap_hours", 48)))
+    if overlap_hours <= 0:
+        overlap_hours = 48
+    last_fetch = parse_iso_datetime(cursor.get("last_successful_fetch_at"))
+    start = (last_fetch - timedelta(hours=overlap_hours)) if last_fetch else now - timedelta(days=7)
+    return start, now, overlap_hours
+
+
+def compute_report_window(project: str, now: datetime) -> tuple[datetime, datetime, dict[str, Any]]:
+    cursor = read_json_file(cursor_path(project, "report"), {})
+    last_report = parse_iso_datetime(cursor.get("last_successful_report_at"))
+    floor = now - timedelta(days=7)
+    start = max(last_report, floor) if last_report else floor
+    return start, now, cursor
+
+
+def build_source_fetch_plan(project: str, now: datetime) -> list[dict[str, Any]]:
+    plans: list[dict[str, Any]] = []
+    for source in DEFAULT_PROJECT_SOURCES:
+        source_cursor_path = cursor_path(project, source)
+        cursor = read_json_file(source_cursor_path, {
+            "project": project,
+            "source": source,
+            "lookback_overlap_hours": 48,
+            "seen_keys": {},
+        })
+        start, end, overlap_hours = compute_source_window(cursor, now)
+        plans.append({
+            "source": source,
+            "cursor_path": ensure_relative(source_cursor_path),
+            "fetch_start": iso(start),
+            "fetch_end": iso(end),
+            "lookback_overlap_hours": overlap_hours,
+            "status": "skipped",
+            "reason": "batch reader not implemented yet",
+            "cursor_advanced": False,
+        })
+    return plans
+
+
+def evidence_in_window(record: dict[str, Any], start: datetime, end: datetime) -> bool:
+    occurred_at = parse_iso_datetime(record.get("occurred_at"))
+    if not occurred_at:
+        return False
+    return start <= occurred_at <= end
+
+
+def filter_project_records(
+    records: list[dict[str, Any]],
+    project: str,
+    start: datetime,
+    end: datetime,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    project_records = [
+        record for record in records
+        if record.get("project") == project and evidence_in_window(record, start, end)
+    ]
+    confirmed = [record for record in project_records if not record.get("uncertain")]
+    uncertain = [record for record in project_records if record.get("uncertain")]
+    return confirmed, uncertain
+
+
+def render_project_report(
+    project: str,
+    run_id: str,
+    report_start: datetime,
+    report_end: datetime,
+    confirmed_records: list[dict[str, Any]],
+    uncertain_records: list[dict[str, Any]],
+    source_fetches: list[dict[str, Any]],
+    validation_report: dict[str, Any],
+    queue_payload: dict[str, Any],
+) -> str:
+    lines = [
+        f"# State of Project: {project}",
+        "",
+        f"Run: `{run_id}`",
+        f"Window: `{iso(report_start)}` to `{iso(report_end)}`",
+        "",
+        "## TL;DR",
+        "",
+    ]
+    if confirmed_records:
+        lines.append(f"- {len(confirmed_records)} confirmed evidence record(s) found in the report window.")
+    else:
+        lines.append("- No confirmed project evidence was found in the report window.")
+    if uncertain_records:
+        lines.append(f"- {len(uncertain_records)} uncertain evidence record(s) need review.")
+    source_gaps = [source for source in source_fetches if source["status"] != "ok"]
+    if source_gaps:
+        lines.append(f"- {len(source_gaps)} source batch reader(s) were not run; see Source Coverage.")
+
+    lines.extend(["", "## Confirmed Evidence", ""])
+    if not confirmed_records:
+        lines.append("_No confirmed evidence records._")
+    for record in confirmed_records:
+        lines.extend([
+            f"- `{record.get('source')}` `{record.get('occurred_at')}`: {record.get('note')}",
+            f"  Source: `{record.get('source_file')}:{record.get('block_start_line')}`",
+        ])
+
+    lines.extend(["", "## Uncertain / Review", ""])
+    if not uncertain_records:
+        lines.append("_No uncertain project records._")
+    for record in uncertain_records:
+        lines.extend([
+            f"- `{record.get('source')}` `{record.get('occurred_at')}`: {record.get('note')}",
+            f"  Source: `{record.get('source_file')}:{record.get('block_start_line')}`",
+        ])
+
+    lines.extend(["", "## Source Coverage", ""])
+    for source in source_fetches:
+        lines.append(
+            f"- {source['source']}: {source['status']} "
+            f"({source['fetch_start']} to {source['fetch_end']}) - {source['reason']}"
+        )
+
+    lines.extend([
+        "",
+        "## Pipeline Checks",
+        "",
+        f"- Queue: `{queue_payload['counts']}`",
+        f"- Validation: `{validation_report['status']}` "
+        f"({validation_report['error_count']} errors, {validation_report['warning_count']} warnings)",
+    ])
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def run_project(args: argparse.Namespace) -> int:
+    project = args.project
+    now = utc_now()
+    run_id = make_run_id(now)
+    manifest: dict[str, Any] = {
+        "run_id": run_id,
+        "timestamp": iso(now),
+        "command": f"run-project {project}",
+        "project": project,
+        "status": "started",
+        "warnings": [],
+        "errors": [],
+    }
+
+    try:
+        registry = load_project_registry()
+        if project not in registry.project_tags:
+            raise RuntimeError(f"Unknown project tag: {project}")
+
+        report_start, report_end, report_cursor = compute_report_window(project, now)
+        source_fetches = build_source_fetch_plan(project, now)
+        queue_payload = build_queue_payload()
+        blocking_items = [
+            item for item in queue_payload["items"]
+            if item["status"] != "current"
+        ]
+
+        manifest["registry_hash"] = registry.hash
+        manifest["windows"] = {
+            "report_start": iso(report_start),
+            "report_end": iso(report_end),
+        }
+        manifest["source_fetches"] = source_fetches
+        manifest["queue"] = {
+            "total": queue_payload["total"],
+            "counts": queue_payload["counts"],
+            "blocking_items": blocking_items,
+        }
+
+        if blocking_items:
+            manifest["status"] = "tagging_required"
+            manifest["errors"].append("Tagging worklist has non-current items.")
+            manifest_result = write_run_manifest(run_id, manifest)
+            print(f"Project run requires tagging: {project}", file=sys.stderr)
+            print(f"- blocking items: {len(blocking_items)}", file=sys.stderr)
+            print(f"- manifest: {ensure_relative(manifest_result.path)}", file=sys.stderr)
+            return 2
+
+        validation_report, validation_path = validate_tagged_logs(write_report=True)
+        manifest["validation"] = {
+            "status": validation_report["status"],
+            "report": ensure_relative(validation_path) if validation_path else None,
+            "file_count": validation_report["file_count"],
+            "error_count": validation_report["error_count"],
+            "warning_count": validation_report["warning_count"],
+            "uncertain_annotation_count": validation_report["uncertain_annotation_count"],
+        }
+        if validation_report["status"] != "ok":
+            manifest["status"] = "validation_failed"
+            manifest["errors"].append("Tagged-log validation failed.")
+            manifest_result = write_run_manifest(run_id, manifest)
+            print(f"Project run validation failed: {project}", file=sys.stderr)
+            print(f"- manifest: {ensure_relative(manifest_result.path)}", file=sys.stderr)
+            return 1
+
+        records = extract_all_records()
+        extraction_result = write_extracted_records(records)
+        confirmed_records, uncertain_records = filter_project_records(
+            records,
+            project,
+            report_start,
+            report_end,
+        )
+        manifest["extraction"] = {
+            "output": ensure_relative(extraction_result.path),
+            "record_count": len(records),
+            "project_confirmed_count": len(confirmed_records),
+            "project_uncertain_count": len(uncertain_records),
+        }
+
+        report_output_path = report_path(project, run_id, report_end)
+        report_text = render_project_report(
+            project,
+            run_id,
+            report_start,
+            report_end,
+            confirmed_records,
+            uncertain_records,
+            source_fetches,
+            validation_report,
+            queue_payload,
+        )
+        report_result = write_text_if_changed(report_output_path, report_text)
+        manifest["report"] = {
+            "path": ensure_relative(report_result.path),
+            "status": report_result.status,
+            "confirmed_count": len(confirmed_records),
+            "uncertain_count": len(uncertain_records),
+        }
+
+        has_source_gaps = any(source["status"] != "ok" for source in source_fetches)
+        manifest["cursors"] = {
+            "report": {},
+            "sources": [
+                {
+                    "source": source["source"],
+                    "path": source["cursor_path"],
+                    "advanced": source["cursor_advanced"],
+                    "reason": source["reason"],
+                }
+                for source in source_fetches
+            ],
+        }
+        if has_source_gaps:
+            manifest["cursors"]["report"] = {
+                "path": ensure_relative(cursor_path(project, "report")),
+                "advanced": False,
+                "reason": "source batch readers had coverage gaps",
+            }
+            manifest["status"] = "ok_with_source_gaps"
+            manifest["warnings"].append("One or more source batch readers were skipped.")
+        else:
+            report_cursor_payload = {
+                "project": project,
+                "last_successful_report_at": iso(report_end),
+                "last_run_id": run_id,
+                "previous_cursor": report_cursor,
+            }
+            cursor_result = write_json_if_changed(cursor_path(project, "report"), report_cursor_payload)
+            manifest["cursors"]["report"] = {
+                "path": ensure_relative(cursor_result.path),
+                "advanced": True,
+                "status": cursor_result.status,
+                "advanced_to": iso(report_end),
+            }
+            manifest["status"] = "ok"
+
+    except Exception as exc:  # noqa: BLE001 - CLI should manifest failures.
+        manifest["status"] = "failed"
+        manifest["errors"].append(str(exc))
+        manifest_result = write_run_manifest(run_id, manifest)
+        print(f"Project run failed: {project}", file=sys.stderr)
+        print(str(exc), file=sys.stderr)
+        print(f"- manifest: {ensure_relative(manifest_result.path)}", file=sys.stderr)
+        return 1
+
+    manifest_result = write_run_manifest(run_id, manifest)
+    print(f"Project run complete: {project}")
+    print(f"- status: {manifest['status']}")
+    print(f"- report: {manifest['report']['path']}")
+    print(f"- manifest: {ensure_relative(manifest_result.path)}")
     return 0
 
 
@@ -925,6 +1261,10 @@ def build_parser() -> argparse.ArgumentParser:
     run_fireflies = subparsers.add_parser("run-fireflies", help="Run the current Fireflies reader slice")
     run_fireflies.add_argument("source_id", help="Fireflies transcript id")
     run_fireflies.set_defaults(func=fireflies_fetch)
+
+    run_project_parser = subparsers.add_parser("run-project", help="Run deterministic project pipeline")
+    run_project_parser.add_argument("project", help="Canonical project tag")
+    run_project_parser.set_defaults(func=run_project)
 
     queue_parser = subparsers.add_parser("queue", help="Show derived tagging queue")
     queue_parser.add_argument("--json", action="store_true", help="Print queue as JSON")

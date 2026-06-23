@@ -1,0 +1,4 @@
+interface:
+  display_name: "Run State of Project"
+  short_description: "Run the nightly Project Intel workflow for one project."
+  default_prompt: "Use $run-state-of-project to run the Project Intel nightly workflow for a named project."

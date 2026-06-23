@@ -443,6 +443,23 @@ Long-term orchestration topics to discuss explicitly before implementation:
 Until those decisions are made, implementation should stay conservative:
 source-log-first, local, reproducible, read-mostly, and easy to replace.
 
+Current nightly project-run skeleton:
+
+```text
+external scheduler -> run-project <Project-tag>
+  -> compute source/report windows from filesystem cursors
+  -> record source coverage gaps for unimplemented batch readers
+  -> require clear tagging worklist
+  -> validate tagged logs
+  -> extract evidence JSONL
+  -> generate private state-of-project report
+  -> advance report cursor only after source coverage is acceptable and the run
+     succeeds
+```
+
+Runtime cursors, private reports, and manifests are documented in
+`data/registry/runtime-state.md`.
+
 ## Long-Term Skill/Module Shape
 
 Do not finalize all skills immediately. Build one by one. The likely long-term

@@ -10,6 +10,7 @@ data/raw/
 data/derived/
 data/review/
 data/projects/
+data/reports/
 
 # Local secrets and caches
 .env

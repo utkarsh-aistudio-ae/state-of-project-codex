@@ -80,3 +80,16 @@ The repo-local Codex tagging workflow lives at
 `.agents/skills/project-tagger/SKILL.md`. Codex uses that skill for the
 non-deterministic project judgment; the script validates syntax, registry use,
 metadata, queue state, and JSONL extraction.
+
+Nightly project-run skeleton:
+
+```bash
+python3 scripts/project_intel.py run-project Argos-ddt
+```
+
+The external scheduler owns timing. The current command computes filesystem
+cursors/windows, checks the derived tagging worklist, validates/extracts tagged
+evidence, writes a private report under `data/reports/`, and records a private
+manifest under `logs/runs/`. Source batch readers are still reported as coverage
+gaps until implemented. When source coverage gaps exist, the command writes the
+report and manifest but does not advance the report cursor.
