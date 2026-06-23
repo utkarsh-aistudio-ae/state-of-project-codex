@@ -171,9 +171,9 @@ they should not insert `[Project]` tags.
 
 Readers must preserve source truth:
 
-- Always write an untouched copy.
-- Then create an editable tagged copy.
-- The tagger edits only the tagged copy.
+- Always write an untouched copy only.
+- The tagger creates or updates the editable tagged copy.
+- The tagger edits only tagged copies under `data/raw/tagged/...`.
 - The untouched copy remains a stable source artifact for auditing and
   reprocessing.
 
@@ -314,14 +314,25 @@ seed: <free-form project name, repo, people, keywords, domains, deployment names
 The skill should:
 
 1. Take a manually supplied project name and any seed information.
-2. Launch a discovery process across available datasources.
-3. Find related repos, deployments, email threads, meeting transcripts, Drive
-   docs, local state files, and other evidence.
-4. Propose a project profile.
-5. Ask a human to confirm.
-6. Hand the confirmed profile to the `project-tag-registry` skill.
-7. Trigger retagging of existing tagged files if, and only if, registry/signature
-   changes imply a possible tagging change.
+2. Start from GitHub when a repo or likely repo exists. Use repo metadata,
+   descriptions, READMEs, commits, issues, PRs, branches, and deployments as the
+   anchor evidence for code projects.
+3. If no GitHub repo exists, treat the project as brand new, non-code, or
+   internal until proven otherwise. Use the previous seven days of available
+   conversations and docs as the default discovery window.
+4. Launch a discovery process across available datasources.
+5. Find related repos, deployments, email threads, meeting headlines/summaries,
+   Drive docs, local state files, and other evidence.
+6. For Fireflies, prefer title, participants, summary, gist, keywords, topics,
+   action items, and transcript chapters before fetching or reading full
+   transcripts. Fetch full transcripts only for likely candidate meetings or
+   explicit backfill.
+7. Propose a project profile.
+8. Ask a human to confirm.
+9. Hand the confirmed profile to the `project-tag-registry` skill.
+10. Trigger retagging of source logs from the last seven days when a new
+   canonical project is added. Older backfills should be explicit by date range,
+   source, or project.
 
 Discovery proposes. Registry canonicalizes. Tagger obeys.
 
@@ -366,7 +377,7 @@ First pass: thin orchestrator skeleton.
 It should enforce the pipeline:
 
 ```text
-reader -> untouched log -> tagged copy -> tagger -> validation -> run summary
+reader -> untouched log -> tagging queue -> tagger -> tagged copy -> validation -> run summary
 ```
 
 It should not attempt full scheduling, multi-source retries, timeline generation,
@@ -546,14 +557,15 @@ The first successful end-to-end slice should be:
 
 1. Fetch one Fireflies transcript.
 2. Save an untouched Markdown source log.
-3. Create a tagged copy.
-4. Annotate the tagged copy with:
+3. Derive a queue item for tagging.
+4. Use the tagger to create a tagged copy.
+5. Annotate the tagged copy with:
    - `[Argos-ddt]`
    - `[?Argos-ddt]`
    - `[untagged]`
-5. Validate tag syntax against the registry.
-6. Extract tagged blocks into JSONL.
-7. Produce a run summary with uncertain tags and coverage gaps.
+6. Validate tag syntax against the registry.
+7. Extract tagged blocks into JSONL.
+8. Produce a run summary with uncertain tags and coverage gaps.
 
 Only after that should the system move to Gmail, GitHub, timeline keeping, and
 daily reports.

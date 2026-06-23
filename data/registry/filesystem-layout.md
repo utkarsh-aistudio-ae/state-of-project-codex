@@ -4,9 +4,8 @@ Last updated: 2026-06-23
 
 This file is the source of truth for Project Intel source-log storage.
 
-Project Intel uses source logs as the primary object. Readers write an untouched
-source log first, then create an editable tagged copy. The tagger edits only
-tagged logs.
+Project Intel uses source logs as the primary object. Readers write untouched
+source logs only. The tagger creates or updates editable tagged copies.
 
 ```text
 data/
@@ -25,10 +24,14 @@ data/
 
 ## Rules
 
-- Readers write untouched logs first.
-- Tagged logs are editable copies.
+- Readers write untouched logs only.
+- Tagged logs are editable copies created or updated by the tagger.
+- A tagged file's existence means the tagger has claimed or processed that
+  source log, not merely that the source is waiting for tags.
 - The tagger edits only `data/raw/tagged/...`.
 - Untouched logs should remain stable for audit and reprocessing.
+- Queue state is derived from untouched files, tagged files, source hashes, and
+  registry metadata. It should be reproducible without in-memory state.
 - Use ISO date folders: `YYYY-MM` and `YYYY-MM-DD`.
 - The timestamp in the filename should come from source occurrence time where
   possible.
@@ -54,3 +57,13 @@ data/raw/tagged/Fireflies/2026-06/2026-06-17/transcript_01KV7H2GX5ACK0J3T8W5K1WH
 data/raw/untouched/Gmail/2026-06/2026-06-22/thread_19eef41d92cf4e40_1500.md
 data/raw/tagged/Gmail/2026-06/2026-06-22/thread_19eef41d92cf4e40_1500.md
 ```
+
+## Retagging Policy
+
+When a new canonical project is added to the registry, retag all source logs
+from the last seven days by default. Older backfill is explicit and can be
+requested later by date range or project.
+
+When an existing project profile changes materially, retag the last seven days,
+files already tagged or uncertain for that project, and any files manually
+selected for review.

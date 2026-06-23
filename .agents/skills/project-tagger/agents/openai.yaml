@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Tagger"
+  short_description: "Annotate Project Intel source logs with canonical project tags."
+  default_prompt: "Use $project-tagger to tag Project Intel source logs."

@@ -78,8 +78,8 @@ Build the first working slice of Project Intel:
 ```text
 Fireflies reader
   -> untouched Markdown source log
-  -> tagged Markdown copy
   -> project tagger
+  -> tagged Markdown copy
   -> validator/parser
   -> run summary
 ```
@@ -286,7 +286,8 @@ Initial command shape:
 
 ```bash
 python3 scripts/project_intel.py fireflies fetch 01KV7H2GX5ACK0J3T8W5K1WHD2
-python3 scripts/project_intel.py tag data/raw/tagged/Fireflies/2026-06/2026-06-17/transcript_01KV7H2GX5ACK0J3T8W5K1WHD2_1000.md
+python3 scripts/project_intel.py queue
+python3 scripts/project_intel.py tag data/raw/untouched/Fireflies/2026-06/2026-06-17/transcript_01KV7H2GX5ACK0J3T8W5K1WHD2_1000.md
 python3 scripts/project_intel.py validate
 python3 scripts/project_intel.py extract
 ```
@@ -301,8 +302,9 @@ Skeleton responsibilities:
 
 - call the relevant reader
 - create the untouched path
-- create/update the tagged copy
+- show a derived tagging queue
 - run tagger
+- let the tagger create/update the tagged copy
 - run validator/parser
 - write a run manifest
 - print a concise summary
@@ -396,7 +398,7 @@ For grouping:
 Acceptance criteria:
 
 - untouched file is readable and faithful enough for audit
-- tagged copy begins as a copy of untouched content
+- reader does not create a tagged copy
 - no project annotations are inserted by the reader
 
 ## Phase 4: Project Tagger
@@ -679,10 +681,12 @@ seed: repo aistudioae/argos-ddt-prod, keywords Argos/Frama/DDT/Zucchetti
 
 Discovery sources:
 
-- GitHub repos and descriptions
+- GitHub repos, descriptions, READMEs, commits, issues, PRs, branches, and
+  deployments as the preferred anchor for code projects
 - deployments
 - Gmail threads
-- Fireflies meetings
+- Fireflies meeting titles, participants, summaries, gists, keywords, topics,
+  action items, and transcript chapters before full transcripts
 - Drive docs/folders/files
 - local artifacts, including prior `project-intel-v2` state
 - Slack later, when tooling exists
@@ -706,10 +710,27 @@ Candidate project profile should include:
 
 It must ask a human before adding a new canonical project tag.
 
+Discovery policy:
+
+- Start from GitHub when a repo or likely repo exists.
+- If no repo exists, treat the project as brand new, non-code, or internal until
+  proven otherwise.
+- For new projects without a repo anchor, use the previous seven days of
+  available conversations and docs as the default discovery window.
+- For Fireflies, use headline/summary metadata first because it is cheaper than
+  reading entire transcripts.
+- Fetch or read full transcripts only for candidate meetings, explicit
+  evidence, or historical backfill.
+- To find the first recorded meeting mention, scan Fireflies titles and summary
+  metadata first, then confirm candidates with full transcript reads.
+
 After registry update:
 
-- detect whether existing tagged files may need retagging
-- regenerate tagged files only where a change is needed
+- retag all source logs from the last seven days when a new canonical project is
+  added
+- retag files already tagged or uncertain for that project when a profile
+  changes materially
+- support explicit older backfill by date range, source, or project
 - avoid churn
 
 Acceptance criteria:
@@ -866,7 +887,8 @@ logs/runs/<run-id>/manifest.json
 Definition of done:
 
 - untouched transcript file is written
-- tagged copy exists
+- queue identifies the untouched transcript as needing tagging
+- tagger creates the tagged copy
 - tagger inserts only approved annotations
 - validator passes
 - parser emits JSONL

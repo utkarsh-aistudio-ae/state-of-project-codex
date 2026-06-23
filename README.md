@@ -37,7 +37,6 @@ runtime manifests with private content, or generated derived records.
 The first implemented slice fetches one Fireflies transcript and writes:
 
 - an untouched Markdown source log under `data/raw/untouched/`
-- an initial tagged Markdown copy under `data/raw/tagged/`
 - a private run manifest under `logs/runs/`
 
 Example:
@@ -48,3 +47,24 @@ python3 scripts/project_intel.py fireflies fetch 01KV7H2GX5ACK0J3T8W5K1WHD2
 
 The command uses the local `bin/fireflies-team` wrapper. Generated source logs
 and manifests are ignored by git.
+
+Derived tagging queue:
+
+```bash
+python3 scripts/project_intel.py queue
+```
+
+The tagger, not the reader, creates or updates matching files under
+`data/raw/tagged/`.
+
+Tagged-log checks:
+
+```bash
+python3 scripts/project_intel.py validate
+python3 scripts/project_intel.py extract
+```
+
+The repo-local Codex tagging workflow lives at
+`.agents/skills/project-tagger/SKILL.md`. Codex uses that skill for the
+non-deterministic project judgment; the script validates syntax, registry use,
+metadata, queue state, and JSONL extraction.
