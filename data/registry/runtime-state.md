@@ -26,6 +26,9 @@ Source cursors and report cursors are separate.
 
 - Source cursors advance after a source fetch succeeds and untouched logs are
   safely written.
+- Source cursors may advance even when the later tagging worklist blocks report
+  generation; the source data has been captured, while tagging remains a
+  separate lifecycle stage.
 - The report cursor advances only after source coverage is acceptable, the
   tagging worklist is clear, validation passes, extraction succeeds, and report
   generation succeeds.
@@ -40,7 +43,15 @@ Example source cursor:
   "source": "Gmail",
   "last_successful_fetch_at": "2026-06-23T00:00:00Z",
   "lookback_overlap_hours": 48,
-  "seen_keys": {}
+  "seen_keys": {
+    "<gmail-thread-id>": {
+      "source_id": "<gmail-thread-id>",
+      "path": "data/raw/untouched/Gmail/2026-06/2026-06-23/thread_<gmail-thread-id>_0900.md",
+      "content_hash": "sha256:...",
+      "occurred_at": "2026-06-23T09:00:00Z",
+      "seen_at": "2026-06-23T20:00:00Z"
+    }
+  }
 }
 ```
 

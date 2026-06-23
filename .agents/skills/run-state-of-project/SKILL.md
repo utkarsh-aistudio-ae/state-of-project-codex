@@ -38,9 +38,22 @@ orchestrations/state-of-project-nightly.md
 ## Current Behavior
 
 The current deterministic CLI computes source fetch windows and report windows,
-reads default project sources from `data/registry/source-families.yaml`, but
-source batch readers are not implemented yet. It records source coverage gaps
-instead of pretending to fetch from unavailable readers.
+reads default project sources from `data/registry/source-families.yaml`, runs
+implemented source readers, and records source coverage gaps for unavailable or
+not-yet-implemented readers.
+
+Current implemented batch readers:
+
+- GitHub: uses project repos from `data/registry/project-tags.yaml` and reader
+  limits from `data/registry/source-families.yaml`.
+- Gmail: uses project aliases, strong signals, and reader settings from the
+  registries to search and fetch full sanitized threads.
+
+Current skipped source gaps:
+
+- Fireflies batch discovery, because only single-transcript fetch exists.
+- Drive.
+- Deployment-provider-specific readers.
 
 The `queue` command is a derived filesystem worklist, not a durable queue. The
 report cursor advances only after source coverage is acceptable, the derived

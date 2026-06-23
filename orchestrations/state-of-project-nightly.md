@@ -51,8 +51,9 @@ Future concepts:
 1. Confirm the project tag exists and is active.
 2. Compute source fetch windows from filesystem cursors.
 3. Build the source fetch plan from `source-families.yaml`.
-4. Run implemented source readers. Record skipped readers as source coverage
-   gaps.
+4. Run implemented source readers. GitHub and Gmail are currently implemented;
+   Fireflies batch discovery, Drive, and deployment-provider-specific readers
+   remain source coverage gaps until their readers exist.
 5. Build the derived tagging worklist from untouched/tagged files, source
    hashes, registry hash, and tagger metadata.
 6. If worklist items need tagging, stop with `tagging_required`.

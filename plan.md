@@ -73,10 +73,10 @@ Notion and Granola auth were not found. Treat them as unavailable for now.
 
 ## Current Objective
 
-Build the first working slice of Project Intel:
+Build the first filesystem-first working slice of Project Intel:
 
 ```text
-Fireflies reader
+readers
   -> untouched Markdown source log
   -> project tagger
   -> tagged Markdown copy
@@ -117,6 +117,17 @@ Supported annotation forms:
 [?Argos-ddt] {Uncertain project assignment; include why it is uncertain.}
 [untagged] {Personal/admin context, not relevant to any AiStudio projects}
 ```
+
+Current reader status:
+
+- Fireflies: single-transcript fetch implemented.
+- Gmail: registry-driven project/thread reader implemented through
+  `bin/gog-sharad` and `data/registry/source-families.yaml`.
+- GitHub: registry-driven project/repo reader implemented through
+  `bin/gh-sharad`, project repos in `project-tags.yaml`, and reader limits in
+  `source-families.yaml`.
+- Drive, Fireflies batch discovery, and deployment-provider-specific readers:
+  planned source coverage gaps.
 
 ## Phase 0: Verify Current Workspace
 
@@ -692,7 +703,10 @@ Acceptance criteria:
 
 ## Phase 6: Gmail Reader
 
-Add Gmail after Fireflies works.
+Status: implemented as a registry-driven source reader in
+`scripts/project_intel.py`.
+
+Use or extend the current reader rather than creating project-specific scripts.
 
 Use `bin/gog-sharad` or available Gmail tools. Prior work used `gog-sharad`
 successfully for Gmail search and thread reads.
@@ -713,6 +727,13 @@ Expected layout:
 ```text
 data/raw/untouched/Gmail/<YYYY-MM>/<YYYY-MM-DD>/thread_<thread-id>_<HHMM>.md
 data/raw/tagged/Gmail/<YYYY-MM>/<YYYY-MM-DD>/thread_<thread-id>_<HHMM>.md
+```
+
+Current commands:
+
+```bash
+python3 scripts/project_intel.py gmail fetch-project Argos-ddt
+python3 scripts/project_intel.py gmail fetch-thread Argos-ddt <thread-id>
 ```
 
 Known useful Argos Gmail thread from prior sweep:
@@ -742,7 +763,10 @@ Acceptance criteria:
 
 ## Phase 7: GitHub Reader
 
-Build after Gmail or in parallel if needed.
+Status: implemented as a registry-driven source reader in
+`scripts/project_intel.py`.
+
+Use or extend the current reader rather than creating project-specific scripts.
 
 Use:
 
@@ -750,7 +774,16 @@ Use:
 bin/gh-sharad
 ```
 
-Start with `aistudioae/argos-ddt-prod`.
+For the current `Argos-ddt` profile, the configured repos are
+`aistudioae/argos-ddt-prod` and `aistudioae/argos-ddt`; future projects should
+add repos to `data/registry/project-tags.yaml`, not to reader code.
+
+Current commands:
+
+```bash
+python3 scripts/project_intel.py github fetch-project Argos-ddt
+python3 scripts/project_intel.py github fetch-repo Argos-ddt <owner/repo>
+```
 
 Reader should capture:
 

@@ -49,20 +49,28 @@ Use these values:
 
 Current default sources:
 
-- GitHub
-- Gmail
+- GitHub (`implemented`)
+- Gmail (`implemented`)
 - Fireflies
 - Drive
 - Deployments
 
-All default batch readers are still skipped until implemented. Skipped sources
-must remain visible in run manifests and reports as source coverage gaps.
+GitHub and Gmail are implemented as registry-driven batch readers. They use
+project profiles from `data/registry/project-tags.yaml` and reader settings from
+`source-families.yaml`; generic reader code must not hardcode a project name,
+repo, email subject, account, or keyword.
+
+Fireflies still has only single-transcript fetch support. Drive and deployment
+readers are planned. Skipped sources must remain visible in run manifests and
+reports as source coverage gaps.
 
 ## Contract Rules
 
 - Readers write untouched logs only.
 - Tagging belongs to `project-tagger`.
 - Source family membership does not imply project ownership.
+- Fetch context such as `fetched_for_project` or `fetch_context.project` is not
+  a project annotation; it only records why the reader pulled the source log.
 - Source status must be recorded in run manifests.
 - A skipped source is not the same as a source with no data.
 - Presentation surfaces can provide pointers, but canonical backing sources

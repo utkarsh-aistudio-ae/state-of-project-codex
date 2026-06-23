@@ -3,10 +3,19 @@ updated_at: "2026-06-23T00:00:00Z"
 source_families:
   - name: GitHub
     default_project_run: true
-    reader_status: planned
+    reader_status: implemented
     source_class: mixed
     cursor_scope: per_project
     lookback_overlap_hours: 48
+    reader:
+      command: bin/gh-sharad
+      max_commits: 100
+      max_issues: 100
+      max_workflow_runs: 50
+      max_deployments: 50
+      max_deployment_statuses: 5
+      max_releases: 50
+      max_branches: 100
     canonical_for:
       - repository metadata
       - commits and code review activity
@@ -19,14 +28,19 @@ source_families:
     privacy:
       - do not persist tokens or private clone credentials
       - do not treat stale local repo caches as proof of current code
-    skip_reason: "GitHub batch reader not implemented yet"
 
   - name: Gmail
     default_project_run: true
-    reader_status: planned
+    reader_status: implemented
     source_class: canonical
     cursor_scope: per_project
     lookback_overlap_hours: 48
+    reader:
+      command: bin/gog-sharad
+      account_alias: sharad
+      default_max_threads: 10
+      search_terms_limit: 16
+      include_weak_people: false
     canonical_for:
       - stakeholder requests and replies
       - client-reported issues
@@ -40,7 +54,6 @@ source_families:
       - summarize by default
       - do not include raw private email text in committed files
       - do not send or draft replies during read-only project runs
-    skip_reason: "Gmail batch reader not implemented yet"
 
   - name: Fireflies
     default_project_run: true
