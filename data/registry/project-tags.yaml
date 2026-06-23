@@ -1,0 +1,44 @@
+version: 1
+updated_at: "2026-06-23T00:00:00Z"
+tags:
+  - tag: Argos-ddt
+    kind: project
+    status: active
+    description: "Inbound DDT automation for Argos/Frama/Zucchetti."
+    aliases:
+      - Argos
+      - Argos DDT
+      - ArgosDDT
+      - Argos-DDT
+      - argos ddt
+    strong_signals:
+      repos:
+        - aistudioae/argos-ddt-prod
+        - aistudioae/argos-ddt
+      domains:
+        - framadev.it
+        - argos-st.com
+      keywords:
+        - DDT
+        - Documento di Trasporto
+        - Frama
+        - Zucchetti
+        - ARGOS_90
+        - ARGOS_TEST_900
+        - ARGOSAIDDT
+        - Nanonets
+        - SFTP
+        - Cambiago
+    weak_signals:
+      people:
+        - Sharad Mirani
+        - Yash Agarwal
+        - Alberto Barbera
+        - Monish Pathare
+        - Krupakar Reddy
+
+  - tag: untagged
+    kind: special
+    status: active
+    description: "Personal/admin context, not relevant to any AiStudio projects"
+    exact_annotation: "[untagged] {Personal/admin context, not relevant to any AiStudio projects}"

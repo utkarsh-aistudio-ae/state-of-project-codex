@@ -1,0 +1,34 @@
+# Private auth and local runtime state
+auth/
+bin/
+logs/
+state/
+config/
+
+# Private source artifacts and derived runtime outputs
+data/raw/
+data/derived/
+data/review/
+data/projects/
+
+# Local secrets and caches
+.env
+.env.*
+*.env
+*.key
+*.pem
+*.p12
+*.jsonl
+*.sqlite
+*.db
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+__pycache__/
+.pytest_cache/
+
+# Local OS/editor noise
+.DS_Store
+*.swp
+*.swo
