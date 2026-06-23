@@ -31,3 +31,20 @@ edit immediately. Batch coherent changes after they pass local checks.
 
 Never push auth material, private transcripts, email exports, Drive downloads,
 runtime manifests with private content, or generated derived records.
+
+## Current CLI
+
+The first implemented slice fetches one Fireflies transcript and writes:
+
+- an untouched Markdown source log under `data/raw/untouched/`
+- an initial tagged Markdown copy under `data/raw/tagged/`
+- a private run manifest under `logs/runs/`
+
+Example:
+
+```bash
+python3 scripts/project_intel.py fireflies fetch 01KV7H2GX5ACK0J3T8W5K1WHD2
+```
+
+The command uses the local `bin/fireflies-team` wrapper. Generated source logs
+and manifests are ignored by git.
