@@ -81,6 +81,12 @@ The repo-local Codex tagging workflow lives at
 non-deterministic project judgment; the script validates syntax, registry use,
 metadata, queue state, and JSONL extraction.
 
+The repo-local teaching-capture workflow lives at
+`.agents/skills/capture-project-intel-teachings/SKILL.md`. Use it when user
+corrections, architecture feedback, source-routing fixes, or "next time" process
+instructions should become durable Project Intel behavior instead of remaining
+only in chat.
+
 Nightly project-run skeleton:
 
 ```bash

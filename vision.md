@@ -89,6 +89,9 @@ Durable principles:
 
 - Treat source capture, tagging, extraction, reporting, task creation, and
   execution as separate lifecycle stages.
+- Treat user corrections as product inputs. Durable process corrections should
+  be normalized, routed to the right owner, patched minimally, and validated
+  instead of being left only in chat.
 - Make state reproducible after process restart. Do not rely on in-memory queues
   for durable workflow state.
 - Preserve original source artifacts and link every downstream claim back to
@@ -465,6 +468,15 @@ Runtime cursors, private reports, and manifests are documented in
 Do not finalize all skills immediately. Build one by one. The likely long-term
 set is:
 
+- `capture-project-intel-teachings`:
+  - detects user corrections, workflow teachings, architecture feedback, source
+    routing fixes, and "next time" instructions
+  - normalizes the teaching and checks existing owners before creating new files
+    or skills
+  - proposes a persistence plan when the durable destination is not obvious
+  - patches the smallest correct owner and validates the result
+  - is cross-cutting workspace improvement infrastructure, not part of the
+    nightly state-of-project run
 - `initiate-project`: manually triggered discovery/bootstrap for one project.
 - `project-tag-registry`: canonical project tags, aliases, signatures, dedupe.
 - Source readers:

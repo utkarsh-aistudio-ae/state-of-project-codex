@@ -136,6 +136,78 @@ Expected:
 
 Do not inspect or print secrets from `auth/`.
 
+## Phase 0.5: Capture Project Intel Teachings
+
+Create and maintain a cross-cutting teaching-capture skill:
+
+```text
+.agents/skills/capture-project-intel-teachings/SKILL.md
+```
+
+Purpose:
+
+- detect user corrections, architecture decisions, workflow teachings, source
+  routing fixes, skill-boundary feedback, safety rules, and "next time do this"
+  instructions
+- normalize the user's intent before deciding where it belongs
+- check existing owners before creating new files or skills
+- propose a persistence plan when the durable destination is not obvious
+- patch the smallest correct owner
+- validate and summarize the exact change
+
+Teaching capture is not part of the nightly `state-of-project` run. It is a
+workspace improvement workflow that keeps Project Intel's plans, skills,
+contracts, scripts, and future orchestration recipes aligned with user
+corrections.
+
+Use the skill when the user says or implies:
+
+- "remember this"
+- "next time"
+- "from now on"
+- "make this repeatable"
+- "turn this into a workflow/skill"
+- "this belongs in the plan"
+- "why didn't you use that source/skill?"
+- "don't hardcode this"
+- "this is the wrong architecture boundary"
+
+Persistence plan shape:
+
+```text
+Teaching detected:
+Normalized intent:
+Existing owners checked:
+Destination:
+Patch type:
+Why this destination:
+Why not a new skill:
+Validation:
+```
+
+Destination rules:
+
+- wrong source or owner selected -> route table/reference/future navigator
+- missing multi-source sequence -> orchestration recipe
+- source-specific caveat -> existing source skill or reference
+- deterministic repeated operation -> script
+- registry/project identity rule -> registry contract or future
+  `project-tag-registry`
+- nightly run behavior -> `run-state-of-project` and runtime-state contract
+- tagging behavior -> `project-tagger` and annotation/filesystem contracts
+- long-term architecture principle -> `vision.md`
+- implementation phase or next task -> `plan.md`
+
+Acceptance criteria:
+
+- the skill exists and validates
+- it does not create duplicate workflow owners
+- it explicitly distinguishes memory, skills, scripts, registry contracts,
+  orchestration recipes, and architecture decisions
+- it does not persist private source content or credentials
+- future user corrections are not left only in chat when they should become
+  durable Project Intel behavior
+
 ## Phase 1: Create Shared Contracts
 
 Create:
@@ -612,7 +684,7 @@ Reader responsibilities:
 - preserve message IDs, thread ID, subject, sender, recipients, timestamps
 - list attachments
 - mark attachments that were not downloaded
-- write untouched and tagged Markdown logs
+- write untouched Markdown logs only
 - do not add project tags
 
 Expected layout:
@@ -1026,7 +1098,11 @@ architecture:
   - run manifest
   - both
 - Whether to create local Codex skills immediately or first implement scripts
-  and codify skills after the workflow stabilizes.
+  and codify skills after the workflow stabilizes. Current exception:
+  `project-tagger`, `run-state-of-project`, and
+  `capture-project-intel-teachings` already exist because they define Codex
+  judgment boundaries and workspace learning behavior rather than final
+  orchestration architecture.
 
 Recommended bias:
 

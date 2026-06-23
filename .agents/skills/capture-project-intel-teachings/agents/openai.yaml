@@ -1,0 +1,4 @@
+interface:
+  display_name: "Capture Teachings"
+  short_description: "Persist Project Intel workflow corrections."
+  default_prompt: "Use $capture-project-intel-teachings to turn this correction into a durable Project Intel workflow update."
