@@ -121,9 +121,9 @@ Supported annotation forms:
 Current reader status:
 
 - Fireflies: single-transcript fetch implemented.
-- Gmail: registry-driven project/thread reader implemented through
+- Gmail: registry-driven shared thread reader implemented through
   `bin/gog-sharad` and `data/registry/source-families.yaml`.
-- GitHub: registry-driven project/repo reader implemented through
+- GitHub: registry-driven shared repo reader implemented through
   `bin/gh-sharad`, project repos in `project-tags.yaml`, and reader limits in
   `source-families.yaml`.
 - Drive, Fireflies batch discovery, and deployment-provider-specific readers:
@@ -398,22 +398,28 @@ Or one combined first-slice command:
 python3 scripts/project_intel.py run-fireflies 01KV7H2GX5ACK0J3T8W5K1WHD2
 ```
 
-Nightly project-run skeleton:
+Nightly data-fetch and report skeleton:
 
 ```bash
-python3 scripts/project_intel.py run-project Argos-ddt
+python3 scripts/project_intel.py run-data-fetch
+python3 scripts/project_intel.py run-state-report Argos-ddt
 ```
 
-The external scheduler owns timing. `run-project` computes filesystem cursor
-windows, reads default sources from `data/registry/source-families.yaml`, records
-source coverage gaps for unimplemented batch readers, requires the derived
-tagging worklist to be clear, validates/extracts evidence, writes a private
-state-of-project report, writes a private run manifest, and advances the report
-cursor only when source coverage is acceptable and the run succeeds.
+The external scheduler owns timing. `run-data-fetch` computes shared source
+cursor windows, reads default data-fetch sources from
+`data/registry/source-families.yaml`, records source coverage gaps for
+unimplemented batch readers, writes untouched logs, writes a private run
+manifest, and advances shared source cursors after successful source capture.
+
+`run-state-report <Project-tag>` is project-specific. It does not fetch shared
+datasources. It requires the derived tagging worklist to be clear,
+validates/extracts evidence, writes a private state-of-project report, writes a
+private run manifest, and advances only the project report cursor when the report
+stage succeeds.
 
 Skeleton responsibilities:
 
-- call the relevant reader
+- call the relevant reader during shared data fetch
 - create the untouched path
 - show a derived tagging worklist via the `queue` command
 - run the deterministic tag helper to prepare/update tagged copy metadata

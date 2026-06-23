@@ -33,7 +33,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 FIREFLIES_SOURCE = "Fireflies"
-DEFAULT_PROJECT_SOURCES = ("GitHub", "Gmail", "Fireflies", "Drive")
+DEFAULT_DATA_FETCH_SOURCES = ("GitHub", "Gmail", "Fireflies", "Drive")
+DATA_FETCH_CURSOR_SCOPE = "data-fetch"
 UTC = timezone.utc
 ANNOTATION_RE = re.compile(r"^\[([?]?[A-Za-z0-9-]+)\] \{([^}]*)\}$")
 POSSIBLE_ANNOTATION_RE = re.compile(r"^\[[^\]]+\]\s*\{.*\}$")
@@ -602,11 +603,11 @@ def load_source_families() -> list[dict[str, Any]]:
         return [
             {
                 "name": source,
-                "default_project_run": True,
+                "default_data_fetch": True,
                 "reader_status": "not_implemented",
                 "lookback_overlap_hours": 48,
             }
-            for source in DEFAULT_PROJECT_SOURCES
+            for source in DEFAULT_DATA_FETCH_SOURCES
         ]
 
     try:
@@ -629,21 +630,21 @@ def load_source_families() -> list[dict[str, Any]]:
     return normalized
 
 
-def project_run_source_families() -> list[dict[str, Any]]:
+def data_fetch_source_families() -> list[dict[str, Any]]:
     selected = [
         family for family in load_source_families()
-        if family.get("default_project_run") is True
+        if family.get("default_data_fetch") is True
     ]
     if selected:
         return selected
     return [
         {
             "name": source,
-            "default_project_run": True,
+            "default_data_fetch": True,
             "reader_status": "not_implemented",
             "lookback_overlap_hours": 48,
         }
-        for source in DEFAULT_PROJECT_SOURCES
+        for source in DEFAULT_DATA_FETCH_SOURCES
     ]
 
 
@@ -688,6 +689,22 @@ def project_profile(project: str, registry: ProjectRegistry | None = None) -> di
     if profile.get("status") not in {None, "active"}:
         raise RuntimeError(f"Project tag is not active: {project}")
     return profile
+
+
+def active_project_profiles(registry: ProjectRegistry) -> list[dict[str, Any]]:
+    return [
+        profile
+        for profile in registry.profiles.values()
+        if profile.get("status") in {None, "active"}
+    ]
+
+
+def active_project_tags(registry: ProjectRegistry) -> list[str]:
+    return sorted(
+        str(profile.get("tag"))
+        for profile in active_project_profiles(registry)
+        if profile.get("tag")
+    )
 
 
 def nested_dict(value: Any, key: str) -> dict[str, Any]:
@@ -819,6 +836,19 @@ def project_signal_terms(profile: dict[str, Any], include_weak_people: bool = Fa
     return deduped
 
 
+def registry_repo_profiles(registry: ProjectRegistry) -> dict[str, list[str]]:
+    repos: dict[str, list[str]] = {}
+    for profile in active_project_profiles(registry):
+        tag = str(profile.get("tag") or "").strip()
+        if not tag:
+            continue
+        for repo in project_repos(profile):
+            repos.setdefault(repo, [])
+            if tag not in repos[repo]:
+                repos[repo].append(tag)
+    return repos
+
+
 def gmail_quote(term: str) -> str:
     escaped = term.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
@@ -838,6 +868,28 @@ def gmail_project_query(profile: dict[str, Any], start: datetime, end: datetime,
     term_query = " OR ".join(gmail_quote(term) for term in terms[:term_limit])
     before = end + timedelta(days=1)
     return f"({term_query}) after:{gmail_date(start)} before:{gmail_date(before)}"
+
+
+def gmail_registry_queries(
+    registry: ProjectRegistry,
+    start: datetime,
+    end: datetime,
+    family: dict[str, Any],
+) -> list[dict[str, Any]]:
+    queries: list[dict[str, Any]] = []
+    for profile in active_project_profiles(registry):
+        tag = str(profile.get("tag") or "").strip()
+        if not tag:
+            continue
+        try:
+            query = gmail_project_query(profile, start, end, family)
+        except RuntimeError:
+            continue
+        queries.append({
+            "project_candidate": tag,
+            "query": query,
+        })
+    return queries
 
 
 def gmail_message_datetime(message: dict[str, Any]) -> datetime | None:
@@ -882,7 +934,7 @@ def github_filter_by_window(items: list[dict[str, Any]], start: datetime, end: d
 
 
 def render_gmail_thread(
-    project: str,
+    fetch_context: dict[str, Any],
     query: str | None,
     search_summary: dict[str, Any] | None,
     source_payload: Any,
@@ -926,10 +978,7 @@ def render_gmail_thread(
         "content_hash": content_hash,
         "generated_at": iso(utc_now()),
         "source_command": f"bin/gog-sharad gmail thread get {thread_id} --full --sanitize-content",
-        "fetch_context": {
-            "project": project,
-            "query": query,
-        },
+        "fetch_context": dict(fetch_context, query=query),
     }
     if search_summary:
         metadata["search_summary"] = {
@@ -948,8 +997,11 @@ def render_gmail_thread(
         f"- Occurred at: `{iso(occurred_at)}`",
         f"- Source URL: {source_ref}",
         f"- Message count: `{len(messages)}`",
-        f"- Fetched for project run: `{project}`",
+        f"- Fetch scope: `{fetch_context.get('scope') or 'unknown'}`",
     ]
+    project_candidates = string_list(fetch_context.get("project_candidates"))
+    if project_candidates:
+        lines.append(f"- Project candidates from registry search: `{', '.join(project_candidates)}`")
     if query:
         lines.append(f"- Search query: `{query}`")
     lines.extend([
@@ -1011,7 +1063,7 @@ def render_gmail_thread(
 
 
 def render_github_repo_activity(
-    project: str,
+    fetch_context: dict[str, Any],
     repo: str,
     start: datetime,
     end: datetime,
@@ -1035,7 +1087,7 @@ def render_github_repo_activity(
         "generated_at": iso(utc_now()),
         "source_command": f"bin/gh-sharad repo view {repo}; bin/gh-sharad api repos/{repo}/...",
         "fetch_context": {
-            "project": project,
+            **fetch_context,
             "window_start": iso(start),
             "window_end": iso(end),
         },
@@ -1059,7 +1111,7 @@ def render_github_repo_activity(
         f"- Repository: `{repo_name}`",
         f"- URL: {source_ref}",
         f"- Window: `{iso(start)}` to `{iso(end)}`",
-        f"- Fetched for project run: `{project}`",
+        f"- Fetch scope: `{fetch_context.get('scope') or 'unknown'}`",
         f"- Description: `{metadata_payload.get('description') or 'none'}`",
         f"- Private: `{metadata_payload.get('isPrivate')}`",
         f"- Default branch: `{nested_dict(metadata_payload, 'defaultBranchRef').get('name') or 'unknown'}`",
@@ -1067,6 +1119,9 @@ def render_github_repo_activity(
         f"- Updated at: `{metadata_payload.get('updatedAt') or 'unknown'}`",
         "",
     ]
+    project_candidates = string_list(fetch_context.get("project_candidates"))
+    if project_candidates:
+        lines.insert(8, f"- Project candidates from registry repo map: `{', '.join(project_candidates)}`")
     if warnings:
         lines.extend(["## Reader Warnings", ""])
         for warning in warnings:
@@ -1312,7 +1367,7 @@ def gmail_search_project_threads(
 
 
 def gmail_fetch_thread_log(
-    project: str,
+    fetch_context: dict[str, Any],
     thread_id: str,
     family: dict[str, Any],
     query: str | None = None,
@@ -1337,7 +1392,7 @@ def gmail_fetch_thread_log(
         "--sanitize-content",
     ]
     payload = run_json_command(command)
-    rendered = render_gmail_thread(project, query, search_summary, payload)
+    rendered = render_gmail_thread(fetch_context, query, search_summary, payload)
     _result, file_record = write_rendered_source_log(rendered)
     seen_record = {
         "source_id": rendered.source_id,
@@ -1358,6 +1413,10 @@ def gmail_fetch_project_logs(
     max_threads: int | None = None,
 ) -> dict[str, Any]:
     query, summaries = gmail_search_project_threads(project, start, end, family, registry, max_threads=max_threads)
+    fetch_context = {
+        "scope": "manual-project-fetch",
+        "project_candidates": [project],
+    }
     files: list[dict[str, Any]] = []
     seen_keys: dict[str, Any] = {}
     errors: list[str] = []
@@ -1367,7 +1426,7 @@ def gmail_fetch_project_logs(
         if not thread_id:
             continue
         try:
-            file_record, seen_record = gmail_fetch_thread_log(project, thread_id, family, query, summary)
+            file_record, seen_record = gmail_fetch_thread_log(fetch_context, thread_id, family, query, summary)
         except Exception as exc:  # noqa: BLE001 - keep source-reader failure visible.
             errors.append(f"{thread_id}: {exc}")
             continue
@@ -1390,6 +1449,108 @@ def gmail_fetch_project_logs(
         "files": files,
         "seen_keys": seen_keys,
         "query": query,
+        "errors": [],
+    }
+
+
+def gmail_fetch_registry_logs(
+    start: datetime,
+    end: datetime,
+    family: dict[str, Any],
+    registry: ProjectRegistry,
+) -> dict[str, Any]:
+    config = reader_config(family)
+    max_threads = parse_int(str(config.get("default_max_threads", 10))) or 10
+    prefix = command_prefix(config, "bin/gog-sharad")
+    account = gmail_reader_account(family)
+    queries = gmail_registry_queries(registry, start, end, family)
+    if not queries:
+        return {
+            "status": "ok",
+            "reason": "Gmail reader found no active registry search profiles",
+            "files": [],
+            "seen_keys": {},
+            "queries": [],
+            "errors": [],
+        }
+
+    threads: dict[str, dict[str, Any]] = {}
+    errors: list[str] = []
+    for query_info in queries:
+        query = str(query_info["query"])
+        project_candidate = str(query_info["project_candidate"])
+        command = [
+            *prefix,
+            "--json",
+            "--results-only",
+            "--gmail-no-send",
+            "--account",
+            account,
+            "gmail",
+            "search",
+            query,
+            f"--max={max_threads}",
+        ]
+        try:
+            payload = run_json_command(command)
+        except RuntimeError as exc:
+            errors.append(f"{project_candidate}: {exc}")
+            continue
+        if not isinstance(payload, list):
+            errors.append(f"{project_candidate}: Gmail search response was not a list")
+            continue
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            thread_id = str(item.get("id") or item.get("threadId") or item.get("thread_id") or "").strip()
+            if not thread_id:
+                continue
+            entry = threads.setdefault(thread_id, {
+                "summary": dict(item),
+                "queries": [],
+                "project_candidates": [],
+            })
+            entry["queries"].append(query)
+            if project_candidate not in entry["project_candidates"]:
+                entry["project_candidates"].append(project_candidate)
+
+    files: list[dict[str, Any]] = []
+    seen_keys: dict[str, Any] = {}
+    for thread_id, info in threads.items():
+        fetch_context = {
+            "scope": DATA_FETCH_CURSOR_SCOPE,
+            "project_candidates": sorted(info["project_candidates"]),
+        }
+        try:
+            file_record, seen_record = gmail_fetch_thread_log(
+                fetch_context,
+                thread_id,
+                family,
+                info["queries"][0] if info["queries"] else None,
+                info["summary"],
+            )
+        except Exception as exc:  # noqa: BLE001 - keep source-reader failure visible.
+            errors.append(f"{thread_id}: {exc}")
+            continue
+        files.append(file_record)
+        seen_keys[thread_id] = seen_record
+
+    if errors:
+        return {
+            "status": "failed",
+            "reason": f"Gmail data fetch had {len(errors)} error(s)",
+            "files": files,
+            "seen_keys": seen_keys,
+            "queries": queries,
+            "errors": errors,
+        }
+
+    return {
+        "status": "ok",
+        "reason": f"Gmail data fetch wrote {len(files)} deduped thread log(s) from {len(threads)} matched thread(s)",
+        "files": files,
+        "seen_keys": seen_keys,
+        "queries": queries,
         "errors": [],
     }
 
@@ -1537,14 +1698,14 @@ def github_fetch_repo_payload(
 
 
 def github_fetch_repo_log(
-    project: str,
+    fetch_context: dict[str, Any],
     repo: str,
     start: datetime,
     end: datetime,
     family: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     payload = github_fetch_repo_payload(repo, start, end, family)
-    rendered = render_github_repo_activity(project, repo, start, end, payload)
+    rendered = render_github_repo_activity(fetch_context, repo, start, end, payload)
     _result, file_record = write_rendered_source_log(rendered)
     seen_record = {
         "source_id": rendered.source_id,
@@ -1577,8 +1738,12 @@ def github_fetch_project_logs(
     seen_keys: dict[str, Any] = {}
     errors: list[str] = []
     for repo in repos:
+        fetch_context = {
+            "scope": "manual-project-fetch",
+            "project_candidates": [project],
+        }
         try:
-            file_record, seen_record = github_fetch_repo_log(project, repo, start, end, family)
+            file_record, seen_record = github_fetch_repo_log(fetch_context, repo, start, end, family)
         except Exception as exc:  # noqa: BLE001 - keep source-reader failure visible.
             errors.append(f"{repo}: {exc}")
             continue
@@ -1597,6 +1762,56 @@ def github_fetch_project_logs(
     return {
         "status": "ok",
         "reason": f"GitHub reader fetched {len(files)} repo activity log(s)",
+        "files": files,
+        "seen_keys": seen_keys,
+        "errors": [],
+    }
+
+
+def github_fetch_registry_logs(
+    start: datetime,
+    end: datetime,
+    family: dict[str, Any],
+    registry: ProjectRegistry,
+) -> dict[str, Any]:
+    repo_profiles = registry_repo_profiles(registry)
+    if not repo_profiles:
+        return {
+            "status": "ok",
+            "reason": "GitHub reader found no repos in active project profiles",
+            "files": [],
+            "seen_keys": {},
+            "errors": [],
+        }
+
+    files: list[dict[str, Any]] = []
+    seen_keys: dict[str, Any] = {}
+    errors: list[str] = []
+    for repo, project_candidates in repo_profiles.items():
+        fetch_context = {
+            "scope": DATA_FETCH_CURSOR_SCOPE,
+            "project_candidates": sorted(project_candidates),
+        }
+        try:
+            file_record, seen_record = github_fetch_repo_log(fetch_context, repo, start, end, family)
+        except Exception as exc:  # noqa: BLE001 - keep source-reader failure visible.
+            errors.append(f"{repo}: {exc}")
+            continue
+        files.append(file_record)
+        seen_keys[repo] = seen_record
+
+    if errors:
+        return {
+            "status": "failed",
+            "reason": f"GitHub data fetch failed for {len(errors)} repo(s)",
+            "files": files,
+            "seen_keys": seen_keys,
+            "errors": errors,
+        }
+
+    return {
+        "status": "ok",
+        "reason": f"GitHub data fetch wrote {len(files)} repo activity log(s)",
         "files": files,
         "seen_keys": seen_keys,
         "errors": [],
@@ -2154,14 +2369,18 @@ def compute_report_window(project: str, now: datetime) -> tuple[datetime, dateti
     return start, now, cursor
 
 
-def build_source_fetch_plan(project: str, now: datetime) -> list[dict[str, Any]]:
+def data_fetch_cursor_path(source: str) -> Path:
+    return ROOT / "state" / "cursors" / DATA_FETCH_CURSOR_SCOPE / f"{source}.json"
+
+
+def build_data_fetch_plan(now: datetime) -> list[dict[str, Any]]:
     plans: list[dict[str, Any]] = []
-    for family in project_run_source_families():
+    for family in data_fetch_source_families():
         source = str(family["name"])
-        source_cursor_path = cursor_path(project, source)
+        source_cursor_path = data_fetch_cursor_path(source)
         default_overlap = parse_int(str(family.get("lookback_overlap_hours", 48))) or 48
         cursor = read_json_file(source_cursor_path, {
-            "project": project,
+            "scope": DATA_FETCH_CURSOR_SCOPE,
             "source": source,
             "lookback_overlap_hours": default_overlap,
             "seen_keys": {},
@@ -2179,6 +2398,7 @@ def build_source_fetch_plan(project: str, now: datetime) -> list[dict[str, Any]]
             status = "skipped"
         plans.append({
             "source": source,
+            "scope": DATA_FETCH_CURSOR_SCOPE,
             "cursor_path": ensure_relative(source_cursor_path),
             "fetch_start": iso(start),
             "fetch_end": iso(end),
@@ -2207,18 +2427,17 @@ def compact_seen_keys(seen_keys: dict[str, Any], max_items: int = 1000) -> dict[
 
 
 def advance_source_cursor(
-    project: str,
     plan: dict[str, Any],
     seen_keys: dict[str, Any],
 ) -> WriteResult:
     source = str(plan["source"])
-    source_cursor_path = cursor_path(project, source)
+    source_cursor_path = resolve_path_argument(str(plan["cursor_path"]))
     existing = read_json_file(source_cursor_path, {})
     existing_seen = existing.get("seen_keys") if isinstance(existing.get("seen_keys"), dict) else {}
     merged_seen = dict(existing_seen)
     merged_seen.update(seen_keys)
     payload = {
-        "project": project,
+        "scope": plan.get("scope") or DATA_FETCH_CURSOR_SCOPE,
         "source": source,
         "last_successful_fetch_at": plan["fetch_end"],
         "lookback_overlap_hours": plan["lookback_overlap_hours"],
@@ -2227,8 +2446,7 @@ def advance_source_cursor(
     return write_json_if_changed(source_cursor_path, payload)
 
 
-def execute_source_fetches(
-    project: str,
+def execute_data_fetches(
     plans: list[dict[str, Any]],
     registry: ProjectRegistry,
 ) -> list[dict[str, Any]]:
@@ -2254,13 +2472,13 @@ def execute_source_fetches(
         try:
             family = source_family_named(source)
             if source == GITHUB_SOURCE:
-                result = github_fetch_project_logs(project, start, end, family, registry)
+                result = github_fetch_registry_logs(start, end, family, registry)
             elif source == GMAIL_SOURCE:
-                result = gmail_fetch_project_logs(project, start, end, family, registry)
+                result = gmail_fetch_registry_logs(start, end, family, registry)
             else:
                 result = {
                     "status": "skipped",
-                    "reason": "no implemented run-project reader for this source family",
+                    "reason": "no implemented run-data-fetch reader for this source family",
                     "files": [],
                     "seen_keys": {},
                     "errors": [],
@@ -2281,9 +2499,11 @@ def execute_source_fetches(
         updated["errors"] = result.get("errors") if isinstance(result.get("errors"), list) else []
         if result.get("query"):
             updated["query"] = result.get("query")
+        if result.get("queries"):
+            updated["queries"] = result.get("queries")
 
         if updated["status"] == "ok":
-            cursor_result = advance_source_cursor(project, updated, result.get("seen_keys", {}))
+            cursor_result = advance_source_cursor(updated, result.get("seen_keys", {}))
             updated["cursor_advanced"] = True
             updated["cursor_status"] = cursor_result.status
             updated["cursor_path"] = ensure_relative(cursor_result.path)
@@ -2379,7 +2599,78 @@ def render_project_report(
     return "\n".join(lines).rstrip() + "\n"
 
 
-def run_project(args: argparse.Namespace) -> int:
+def run_data_fetch(args: argparse.Namespace) -> int:
+    started_at = utc_now()
+    now = started_at
+    run_id = make_run_id(started_at)
+    manifest: dict[str, Any] = {
+        "run_id": run_id,
+        "timestamp": iso(started_at),
+        "started_at": iso(started_at),
+        "trigger_source": "manual_cli",
+        "command": "run-data-fetch",
+        "scope": DATA_FETCH_CURSOR_SCOPE,
+        "status": "started",
+        "mutations_performed": False,
+        "external_delivery": False,
+        "warnings": [],
+        "errors": [],
+    }
+
+    try:
+        registry = load_project_registry()
+        source_fetches = execute_data_fetches(build_data_fetch_plan(now), registry)
+        queue_payload = build_queue_payload()
+
+        manifest["registry_hash"] = registry.hash
+        manifest["source_families_hash"] = source_families_hash()
+        manifest["active_project_candidates"] = active_project_tags(registry)
+        manifest["source_fetches"] = source_fetches
+        manifest["source_status_counts"] = count_statuses(source_fetches)
+        manifest["queue"] = {
+            "total": queue_payload["total"],
+            "counts": queue_payload["counts"],
+        }
+        manifest["cursors"] = {
+            "sources": [
+                {
+                    "source": source["source"],
+                    "path": source["cursor_path"],
+                    "advanced": source["cursor_advanced"],
+                    "reason": source["reason"],
+                }
+                for source in source_fetches
+            ],
+        }
+
+        has_source_gaps = any(source["status"] != "ok" for source in source_fetches)
+        if has_source_gaps:
+            manifest["status"] = "ok_with_source_gaps"
+            manifest["warnings"].append("One or more source batch readers were skipped or failed.")
+        else:
+            manifest["status"] = "ok"
+
+    except Exception as exc:  # noqa: BLE001 - CLI should manifest failures.
+        manifest["status"] = "failed"
+        manifest["errors"].append(str(exc))
+        finalize_manifest(manifest, started_at)
+        manifest_result = write_run_manifest(run_id, manifest)
+        print("Data fetch failed.", file=sys.stderr)
+        print(str(exc), file=sys.stderr)
+        print(f"- manifest: {ensure_relative(manifest_result.path)}", file=sys.stderr)
+        return 1
+
+    finalize_manifest(manifest, started_at)
+    manifest_result = write_run_manifest(run_id, manifest)
+    print("Data fetch complete")
+    print(f"- status: {manifest['status']}")
+    print(f"- source counts: {manifest['source_status_counts']}")
+    print(f"- queue counts: {manifest['queue']['counts']}")
+    print(f"- manifest: {ensure_relative(manifest_result.path)}")
+    return 0 if manifest["status"] in {"ok", "ok_with_source_gaps"} else 1
+
+
+def run_state_report(args: argparse.Namespace) -> int:
     project = args.project
     started_at = utc_now()
     now = started_at
@@ -2389,7 +2680,7 @@ def run_project(args: argparse.Namespace) -> int:
         "timestamp": iso(started_at),
         "started_at": iso(started_at),
         "trigger_source": "manual_cli",
-        "command": f"run-project {project}",
+        "command": f"run-state-report {project}",
         "project": project,
         "status": "started",
         "mutations_performed": False,
@@ -2404,11 +2695,7 @@ def run_project(args: argparse.Namespace) -> int:
             raise RuntimeError(f"Unknown project tag: {project}")
 
         report_start, report_end, report_cursor = compute_report_window(project, now)
-        source_fetches = execute_source_fetches(
-            project,
-            build_source_fetch_plan(project, now),
-            registry,
-        )
+        source_fetches: list[dict[str, Any]] = []
         queue_payload = build_queue_payload()
         blocking_items = [
             item for item in queue_payload["items"]
@@ -2421,8 +2708,8 @@ def run_project(args: argparse.Namespace) -> int:
             "report_start": iso(report_start),
             "report_end": iso(report_end),
         }
-        manifest["source_fetches"] = source_fetches
-        manifest["source_status_counts"] = count_statuses(source_fetches)
+        manifest["source_fetches"] = []
+        manifest["source_status_counts"] = {}
         manifest["queue"] = {
             "total": queue_payload["total"],
             "counts": queue_payload["counts"],
@@ -2434,7 +2721,7 @@ def run_project(args: argparse.Namespace) -> int:
             manifest["errors"].append("Tagging worklist has non-current items.")
             finalize_manifest(manifest, started_at)
             manifest_result = write_run_manifest(run_id, manifest)
-            print(f"Project run requires tagging: {project}", file=sys.stderr)
+            print(f"State report requires tagging: {project}", file=sys.stderr)
             print(f"- blocking items: {len(blocking_items)}", file=sys.stderr)
             print(f"- manifest: {ensure_relative(manifest_result.path)}", file=sys.stderr)
             return 2
@@ -2453,7 +2740,7 @@ def run_project(args: argparse.Namespace) -> int:
             manifest["errors"].append("Tagged-log validation failed.")
             finalize_manifest(manifest, started_at)
             manifest_result = write_run_manifest(run_id, manifest)
-            print(f"Project run validation failed: {project}", file=sys.stderr)
+            print(f"State report validation failed: {project}", file=sys.stderr)
             print(f"- manifest: {ensure_relative(manifest_result.path)}", file=sys.stderr)
             return 1
 
@@ -2495,15 +2782,7 @@ def run_project(args: argparse.Namespace) -> int:
         has_source_gaps = any(source["status"] != "ok" for source in source_fetches)
         manifest["cursors"] = {
             "report": {},
-            "sources": [
-                {
-                    "source": source["source"],
-                    "path": source["cursor_path"],
-                    "advanced": source["cursor_advanced"],
-                    "reason": source["reason"],
-                }
-                for source in source_fetches
-            ],
+            "sources": [],
         }
         if has_source_gaps:
             manifest["cursors"]["report"] = {
@@ -2534,18 +2813,25 @@ def run_project(args: argparse.Namespace) -> int:
         manifest["errors"].append(str(exc))
         finalize_manifest(manifest, started_at)
         manifest_result = write_run_manifest(run_id, manifest)
-        print(f"Project run failed: {project}", file=sys.stderr)
+        print(f"State report failed: {project}", file=sys.stderr)
         print(str(exc), file=sys.stderr)
         print(f"- manifest: {ensure_relative(manifest_result.path)}", file=sys.stderr)
         return 1
 
     finalize_manifest(manifest, started_at)
     manifest_result = write_run_manifest(run_id, manifest)
-    print(f"Project run complete: {project}")
+    print(f"State report complete: {project}")
     print(f"- status: {manifest['status']}")
     print(f"- report: {manifest['report']['path']}")
     print(f"- manifest: {ensure_relative(manifest_result.path)}")
     return 0
+
+
+def run_project_deprecated(args: argparse.Namespace) -> int:
+    print("`run-project` has been retired as a fetch entrypoint.", file=sys.stderr)
+    print("Use `run-data-fetch` once for shared datasource ingestion.", file=sys.stderr)
+    print(f"Then use `run-state-report {args.project}` for the project-specific report stage.", file=sys.stderr)
+    return 2
 
 
 def parse_reader_window(args: argparse.Namespace) -> tuple[datetime, datetime]:
@@ -2597,7 +2883,11 @@ def gmail_fetch_thread(args: argparse.Namespace) -> int:
         print(f"Unknown project tag: {args.project}", file=sys.stderr)
         return 2
     family = source_family_named(GMAIL_SOURCE)
-    file_record, _seen_record = gmail_fetch_thread_log(args.project, args.thread_id, family)
+    fetch_context = {
+        "scope": "manual-project-fetch",
+        "project_candidates": [args.project],
+    }
+    file_record, _seen_record = gmail_fetch_thread_log(fetch_context, args.thread_id, family)
     print(f"Gmail thread fetched: {args.thread_id}")
     print(f"- {file_record['status']}: {file_record['path']}")
     return 0
@@ -2622,7 +2912,11 @@ def github_fetch_repo(args: argparse.Namespace) -> int:
         return 2
     start, end = parse_reader_window(args)
     family = source_family_named(GITHUB_SOURCE)
-    file_record, _seen_record = github_fetch_repo_log(args.project, args.repo, start, end, family)
+    fetch_context = {
+        "scope": "manual-project-fetch",
+        "project_candidates": [args.project],
+    }
+    file_record, _seen_record = github_fetch_repo_log(fetch_context, args.repo, start, end, family)
     print(f"GitHub repo fetched: {args.repo}")
     print(f"- {file_record['status']}: {file_record['path']}")
     return 0
@@ -2646,6 +2940,9 @@ def build_parser() -> argparse.ArgumentParser:
     run_fireflies = subparsers.add_parser("run-fireflies", help="Run the current Fireflies reader slice")
     run_fireflies.add_argument("source_id", help="Fireflies transcript id")
     run_fireflies.set_defaults(func=fireflies_fetch)
+
+    run_data_fetch_parser = subparsers.add_parser("run-data-fetch", help="Fetch shared datasource logs")
+    run_data_fetch_parser.set_defaults(func=run_data_fetch)
 
     gmail = subparsers.add_parser("gmail", help="Gmail source reader commands")
     gmail_sub = gmail.add_subparsers(dest="gmail_command", required=True)
@@ -2674,9 +2971,13 @@ def build_parser() -> argparse.ArgumentParser:
     github_repo_parser.add_argument("--until", help="Fetch window end, ISO timestamp or YYYY-MM-DD")
     github_repo_parser.set_defaults(func=github_fetch_repo)
 
-    run_project_parser = subparsers.add_parser("run-project", help="Run deterministic project pipeline")
+    run_state_report_parser = subparsers.add_parser("run-state-report", help="Run project-specific report pipeline")
+    run_state_report_parser.add_argument("project", help="Canonical project tag")
+    run_state_report_parser.set_defaults(func=run_state_report)
+
+    run_project_parser = subparsers.add_parser("run-project", help="Deprecated: use run-data-fetch and run-state-report")
     run_project_parser.add_argument("project", help="Canonical project tag")
-    run_project_parser.set_defaults(func=run_project)
+    run_project_parser.set_defaults(func=run_project_deprecated)
 
     queue_parser = subparsers.add_parser("queue", help="Show derived tagging queue")
     queue_parser.add_argument("--json", action="store_true", help="Print queue as JSON")

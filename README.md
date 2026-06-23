@@ -96,20 +96,21 @@ corrections, architecture feedback, source-routing fixes, or "next time" process
 instructions should become durable Project Intel behavior instead of remaining
 only in chat.
 
-Nightly project-run skeleton:
+Nightly data-fetch and report skeleton:
 
 ```bash
-python3 scripts/project_intel.py run-project Argos-ddt
+python3 scripts/project_intel.py run-data-fetch
+python3 scripts/project_intel.py run-state-report Argos-ddt
 ```
 
-The external scheduler owns timing. The current command computes filesystem
-cursors/windows, reads source families from
-`data/registry/source-families.yaml`, checks the derived tagging worklist,
+The external scheduler owns timing. `run-data-fetch` computes shared source
+cursors/windows, reads data-fetch source families from
+`data/registry/source-families.yaml`, writes untouched source logs, advances
+shared source cursors after successful capture, and records a private manifest.
+`run-state-report <Project-tag>` checks the derived tagging worklist,
 validates/extracts tagged evidence, writes a private report under
-`data/reports/`, and records a private manifest under `logs/runs/`. Source batch
-readers are still reported as coverage gaps until implemented. When source
-coverage gaps exist, the command writes the report and manifest but does not
-advance the report cursor.
+`data/reports/`, records a private manifest under `logs/runs/`, and advances the
+project report cursor after the report stage succeeds.
 
 The current orchestration recipe is:
 

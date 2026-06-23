@@ -5,20 +5,23 @@ Last updated: 2026-06-23
 This file documents the filesystem-only runtime state model for the current
 Project Intel prototype.
 
-The external scheduler triggers a named project run. Project Intel does not own
-the schedule yet. The scheduled-run metadata contract is documented in
+The external scheduler triggers shared data fetches and, separately, named
+project report runs. Project Intel does not own the schedule yet. The
+scheduled-run metadata contract is documented in
 `data/registry/scheduled-run-contract.md`.
 
 ```bash
-python3 scripts/project_intel.py run-project <Project-tag>
+python3 scripts/project_intel.py run-data-fetch
+python3 scripts/project_intel.py run-state-report <Project-tag>
 ```
 
 ## Cursors
 
-Per-project cursors live under private runtime state:
+Shared source cursors and per-project report cursors live under private runtime
+state:
 
 ```text
-state/cursors/<Project-tag>/<source>.json
+state/cursors/data-fetch/<source>.json
 state/cursors/<Project-tag>/report.json
 ```
 
@@ -29,9 +32,11 @@ Source cursors and report cursors are separate.
 - Source cursors may advance even when the later tagging worklist blocks report
   generation; the source data has been captured, while tagging remains a
   separate lifecycle stage.
-- The report cursor advances only after source coverage is acceptable, the
-  tagging worklist is clear, validation passes, extraction succeeds, and report
-  generation succeeds.
+- Shared datasources such as Gmail, Fireflies, Drive, and future chat readers
+  must not be fetched once per project during reporting. One conversation can
+  contain evidence for many projects.
+- The report cursor advances only after the tagging worklist is clear,
+  validation passes, extraction succeeds, and report generation succeeds.
 - Source fetches should use a lookback overlap, such as 48 hours, to catch late
   updates and edited threads.
 
@@ -39,7 +44,7 @@ Example source cursor:
 
 ```json
 {
-  "project": "Argos-ddt",
+  "scope": "data-fetch",
   "source": "Gmail",
   "last_successful_fetch_at": "2026-06-23T00:00:00Z",
   "lookback_overlap_hours": 48,
@@ -117,15 +122,13 @@ They are ignored by git.
 
 ## Run Manifests
 
-Each project run writes a private manifest:
+Each data-fetch or report run writes a private manifest:
 
 ```text
 logs/runs/<run-id>/manifest.json
 ```
 
-The manifest records project, windows, source fetch status, tagging worklist
-status, validation, extraction, report path, cursor updates, source status
-counts, trigger source, start/end timestamps, duration, mutation flag, external
-delivery flag, warnings, and errors. Runs may write a report but intentionally
-not advance the report cursor when source coverage gaps would make cursor
-advancement unsafe.
+The manifest records scope, project when applicable, windows, source fetch
+status, tagging worklist status, validation, extraction, report path, cursor
+updates, source status counts, trigger source, start/end timestamps, duration,
+mutation flag, external delivery flag, warnings, and errors.

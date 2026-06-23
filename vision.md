@@ -446,19 +446,21 @@ Long-term orchestration topics to discuss explicitly before implementation:
 Until those decisions are made, implementation should stay conservative:
 source-log-first, local, reproducible, read-mostly, and easy to replace.
 
-Current nightly project-run skeleton:
+Current nightly data-fetch/report skeleton:
 
 ```text
-external scheduler -> run-project <Project-tag>
-  -> compute source/report windows from filesystem cursors
-  -> read source families from data/registry/source-families.yaml
+external scheduler -> run-data-fetch
+  -> compute shared source windows from filesystem cursors
+  -> read data-fetch source families from data/registry/source-families.yaml
+  -> run implemented shared source readers once per source window
   -> record source coverage gaps for unimplemented batch readers
+
+external scheduler or follow-on step -> run-state-report <Project-tag>
   -> require clear tagging worklist
   -> validate tagged logs
   -> extract evidence JSONL
   -> generate private state-of-project report
-  -> advance report cursor only after source coverage is acceptable and the run
-     succeeds
+  -> advance project report cursor only after the report stage succeeds
 ```
 
 Runtime cursors, private reports, and manifests are documented in

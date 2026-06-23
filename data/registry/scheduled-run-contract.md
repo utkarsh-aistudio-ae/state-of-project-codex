@@ -2,11 +2,12 @@
 
 Last updated: 2026-06-23
 
-Project Intel does not own scheduling yet. An external scheduler triggers a
-named project run:
+Project Intel does not own scheduling yet. An external scheduler triggers shared
+data fetches and project-specific report runs:
 
 ```bash
-python3 scripts/project_intel.py run-project <Project-tag>
+python3 scripts/project_intel.py run-data-fetch
+python3 scripts/project_intel.py run-state-report <Project-tag>
 ```
 
 This file defines the metadata every future scheduled job must provide or make
@@ -14,20 +15,32 @@ recoverable from configuration.
 
 ## Required Job Definition
 
-Every scheduled `state-of-project` job should define:
+Every scheduled `run-data-fetch` job should define:
 
 - owner
 - job name
 - schedule
 - timezone
-- project tag
 - source-family scope
+- mutation behavior
+- skip rules
+- failure notification path
+- source cursor behavior
+- audit output path
+
+Every scheduled `run-state-report` job should define:
+
+- owner
+- job name
+- schedule or upstream dependency
+- timezone
+- project tag
 - report window policy
 - destination for reports or notifications
 - mutation behavior
 - skip rules
 - failure notification path
-- cursor behavior
+- report cursor behavior
 - audit output path
 
 ## Current Manual Equivalent
@@ -36,9 +49,9 @@ The current CLI assumes:
 
 - owner: user running the command
 - trigger source: `manual_cli`
-- project tag: command argument
-- source-family scope: `default_project_run` entries from
+- source-family scope: `default_data_fetch` entries from
   `data/registry/source-families.yaml`
+- project tag: command argument for `run-state-report`
 - mutation behavior: no external writes
 - external delivery: none
 - failure notification: command output plus run manifest
@@ -48,11 +61,13 @@ The current CLI assumes:
 
 - Source cursors advance only after a source fetch succeeds and untouched logs
   are safely written.
-- The report cursor advances only when source coverage is acceptable, the
-  derived tagging worklist is clear, validation passes, extraction succeeds,
-  and report generation succeeds.
-- Runs with skipped source readers may write private reports and manifests, but
-  must not advance the report cursor.
+- Source cursors are scoped to shared data-fetch source families, not individual
+  project reports.
+- The report cursor advances only when the derived tagging worklist is clear,
+  validation passes, extraction succeeds, and report generation succeeds.
+- Runs with skipped source readers may write private data-fetch manifests; the
+  report stage should preserve source coverage warnings rather than pretending
+  missing sources were checked.
 
 ## Skip Rules
 

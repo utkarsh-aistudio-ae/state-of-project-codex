@@ -2,10 +2,10 @@ version: 1
 updated_at: "2026-06-23T00:00:00Z"
 source_families:
   - name: GitHub
-    default_project_run: true
+    default_data_fetch: true
     reader_status: implemented
     source_class: mixed
-    cursor_scope: per_project
+    cursor_scope: shared_source
     lookback_overlap_hours: 48
     reader:
       command: bin/gh-sharad
@@ -30,10 +30,10 @@ source_families:
       - do not treat stale local repo caches as proof of current code
 
   - name: Gmail
-    default_project_run: true
+    default_data_fetch: true
     reader_status: implemented
     source_class: canonical
-    cursor_scope: per_project
+    cursor_scope: shared_source
     lookback_overlap_hours: 48
     reader:
       command: bin/gog-sharad
@@ -53,13 +53,13 @@ source_families:
     privacy:
       - summarize by default
       - do not include raw private email text in committed files
-      - do not send or draft replies during read-only project runs
+      - do not send or draft replies during read-only data-fetch or report runs
 
   - name: Fireflies
-    default_project_run: true
+    default_data_fetch: true
     reader_status: single_fetch_only
     source_class: canonical
-    cursor_scope: per_project
+    cursor_scope: shared_source
     lookback_overlap_hours: 48
     canonical_for:
       - recorded meeting discussion
@@ -75,10 +75,10 @@ source_families:
     skip_reason: "Fireflies batch reader not implemented yet; single transcript fetch exists"
 
   - name: Drive
-    default_project_run: true
+    default_data_fetch: true
     reader_status: planned
     source_class: mixed
-    cursor_scope: per_project
+    cursor_scope: shared_source
     lookback_overlap_hours: 48
     canonical_for:
       - project docs and shared artifacts when Drive is the owning location
@@ -94,10 +94,10 @@ source_families:
     skip_reason: "Drive batch reader not implemented yet"
 
   - name: Deployments
-    default_project_run: true
+    default_data_fetch: true
     reader_status: planned
     source_class: canonical
-    cursor_scope: per_project
+    cursor_scope: shared_source
     lookback_overlap_hours: 48
     canonical_for:
       - deployment attempts

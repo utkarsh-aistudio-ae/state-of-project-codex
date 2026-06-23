@@ -13,7 +13,7 @@ human-facing source map for readers, taggers, synthesizers, and report writers.
 Project Intel should not hardcode source families inside generic scripts when a
 filesystem contract can describe them. Source-family metadata records:
 
-- whether a source participates in default project runs
+- whether a source participates in default shared data-fetch runs
 - current reader implementation status
 - cursor scope and lookback policy
 - what the source is canonical for
@@ -38,14 +38,14 @@ Use these values:
 
 - `planned`: no reader is implemented yet
 - `single_fetch_only`: one-off fetch exists, but batch cursor fetch is not wired
-- `implemented`: reader can participate in `run-project`
+- `implemented`: reader can participate in `run-data-fetch`
 - `unavailable`: source is known but credentials/tooling are unavailable
 - `disabled`: source exists but is intentionally excluded
 
-## Current Default Project Sources
+## Current Default Data-Fetch Sources
 
-`run-project` reads `source-families.yaml` and includes sources where
-`default_project_run: true`.
+`run-data-fetch` reads `source-families.yaml` and includes sources where
+`default_data_fetch: true`.
 
 Current default sources:
 
@@ -56,9 +56,9 @@ Current default sources:
 - Deployments
 
 GitHub and Gmail are implemented as registry-driven batch readers. They use
-project profiles from `data/registry/project-tags.yaml` and reader settings from
-`source-families.yaml`; generic reader code must not hardcode a project name,
-repo, email subject, account, or keyword.
+project profiles from `data/registry/project-tags.yaml` as discovery signals and
+reader settings from `source-families.yaml`; generic reader code must not
+hardcode a project name, repo, email subject, account, or keyword.
 
 Fireflies still has only single-transcript fetch support. Drive and deployment
 readers are planned. Skipped sources must remain visible in run manifests and
@@ -69,8 +69,11 @@ reports as source coverage gaps.
 - Readers write untouched logs only.
 - Tagging belongs to `project-tagger`.
 - Source family membership does not imply project ownership.
-- Fetch context such as `fetched_for_project` or `fetch_context.project` is not
-  a project annotation; it only records why the reader pulled the source log.
+- Fetch context such as `fetch_context.project_candidates` is not a project
+  annotation; it only records why the reader pulled the source log.
+- Shared datasources must be fetched once per source window, not once per
+  project report. Tagging and extraction decide which blocks matter to which
+  project.
 - Source status must be recorded in run manifests.
 - A skipped source is not the same as a source with no data.
 - Presentation surfaces can provide pointers, but canonical backing sources

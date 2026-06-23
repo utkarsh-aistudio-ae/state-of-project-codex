@@ -73,7 +73,7 @@ artifacts.
 
 ## Current Skeleton
 
-The current `run-project` command writes a placeholder private markdown report
-directly from extracted records. This is acceptable only as a skeleton. Before
-adding multiple real source readers, introduce the synthesis boundary above so
-the report writer does not become the intelligence layer.
+The current `run-state-report` command writes a placeholder private markdown
+report directly from extracted records. This is acceptable only as a skeleton.
+Before generating management-grade reports, introduce the synthesis boundary
+above so the report writer does not become the intelligence layer.
