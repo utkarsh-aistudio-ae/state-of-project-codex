@@ -12,6 +12,12 @@ Codex owns intelligent steps such as tagging and report judgment. Deterministic
 scripts own paths, hashes, cursors, validation, extraction, manifests, and
 private report files.
 
+Before changing the workflow shape, read the orchestration recipe:
+
+```text
+orchestrations/state-of-project-nightly.md
+```
+
 ## Workflow
 
 1. Confirm the project tag exists in `data/registry/project-tags.yaml`.
@@ -32,13 +38,15 @@ private report files.
 ## Current Behavior
 
 The current deterministic CLI computes source fetch windows and report windows,
-but source batch readers are not implemented yet. It records source coverage
-gaps instead of pretending to fetch from unavailable readers.
+reads default project sources from `data/registry/source-families.yaml`, but
+source batch readers are not implemented yet. It records source coverage gaps
+instead of pretending to fetch from unavailable readers.
 
-The report cursor advances only after source coverage is acceptable, queue state
-is clear, validation passes, extraction succeeds, and the private report is
-written. With skipped source batch readers, the command may write a report and
-manifest but should not advance the report cursor.
+The `queue` command is a derived filesystem worklist, not a durable queue. The
+report cursor advances only after source coverage is acceptable, the derived
+worklist is clear, validation passes, extraction succeeds, and the private
+report is written. With skipped source batch readers, the command may write a
+report and manifest but should not advance the report cursor.
 
 ## Safety
 

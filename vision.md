@@ -424,7 +424,7 @@ Current implementation may provide a thin CLI that enforces the agreed pipeline:
 
 
 ```text
-reader -> untouched log -> tagging queue -> tagger -> tagged copy -> validation -> run summary
+reader -> untouched log -> derived tagging worklist -> tagger -> tagged copy -> validation -> run summary
 ```
 
 It should not attempt full scheduling, multi-source retries, timeline generation,
@@ -451,6 +451,7 @@ Current nightly project-run skeleton:
 ```text
 external scheduler -> run-project <Project-tag>
   -> compute source/report windows from filesystem cursors
+  -> read source families from data/registry/source-families.yaml
   -> record source coverage gaps for unimplemented batch readers
   -> require clear tagging worklist
   -> validate tagged logs
@@ -496,10 +497,16 @@ set is:
 - timeline keeper:
   - consumes confirmed tagged blocks
   - records chronology, decisions, actions, shipped changes, blockers
+- project-state-synthesizer:
+  - consumes confirmed extracted evidence and source coverage metadata
+  - infers chronology, contradictions, commitments, shipped work, open work,
+    confidence, and missing evidence
+  - keeps uncertain evidence as review signals, not authoritative state
 - daily/weekly report writer:
-  - summarizes confirmed project changes
+  - turns synthesis output into canonical management reports
   - surfaces uncertain tags
   - lists source coverage gaps
+  - does not own deep chronology or cross-source reasoning
 - issue auditor:
   - finds missing, duplicate, stale, overlapping, or wrong-project issues
 - issue writer:

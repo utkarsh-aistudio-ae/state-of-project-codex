@@ -66,8 +66,17 @@ Derived tagging queue:
 python3 scripts/project_intel.py queue
 ```
 
+The `queue` command is a derived filesystem worklist, not a durable queue. It is
+computed from untouched files, tagged files, source hashes, registry hash, and
+tagger metadata.
+
 The tagger, not the reader, creates or updates matching files under
-`data/raw/tagged/`.
+`data/raw/tagged/`. The deterministic helper for preparing or finalizing a
+tagged copy is:
+
+```bash
+python3 scripts/project_intel.py tag data/raw/untouched/<Source>/<YYYY-MM>/<YYYY-MM-DD>/<file>.md
+```
 
 Tagged-log checks:
 
@@ -94,8 +103,16 @@ python3 scripts/project_intel.py run-project Argos-ddt
 ```
 
 The external scheduler owns timing. The current command computes filesystem
-cursors/windows, checks the derived tagging worklist, validates/extracts tagged
-evidence, writes a private report under `data/reports/`, and records a private
-manifest under `logs/runs/`. Source batch readers are still reported as coverage
-gaps until implemented. When source coverage gaps exist, the command writes the
-report and manifest but does not advance the report cursor.
+cursors/windows, reads source families from
+`data/registry/source-families.yaml`, checks the derived tagging worklist,
+validates/extracts tagged evidence, writes a private report under
+`data/reports/`, and records a private manifest under `logs/runs/`. Source batch
+readers are still reported as coverage gaps until implemented. When source
+coverage gaps exist, the command writes the report and manifest but does not
+advance the report cursor.
+
+The current orchestration recipe is:
+
+```text
+orchestrations/state-of-project-nightly.md
+```

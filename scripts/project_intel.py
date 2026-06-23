@@ -6,8 +6,8 @@ First supported slice:
     Fireflies transcript -> untouched Markdown
 
 Tagging is performed by Codex through the project-tagger skill. The script owns
-deterministic mechanics for the current prototype: paths, hashes, queue status,
-manifests, validation, and extraction.
+deterministic mechanics for the current prototype: paths, hashes, derived
+worklist status, manifests, validation, and extraction.
 
 This file is not the final orchestration architecture. Long-term scheduling,
 durable queue storage, datasource coordination, service boundaries, and review
@@ -27,6 +27,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[1]
 FIREFLIES_SOURCE = "Fireflies"
@@ -34,6 +36,8 @@ DEFAULT_PROJECT_SOURCES = ("GitHub", "Gmail", "Fireflies", "Drive")
 UTC = timezone.utc
 ANNOTATION_RE = re.compile(r"^\[([?]?[A-Za-z0-9-]+)\] \{([^}]*)\}$")
 POSSIBLE_ANNOTATION_RE = re.compile(r"^\[[^\]]+\]\s*\{.*\}$")
+ALLOWED_TAG_STATUSES = {"prepared", "tagged", "needs_review", "failed"}
+TAGGER_VERSION = "project-intel-v1"
 
 
 @dataclass(frozen=True)
@@ -61,6 +65,13 @@ class ProjectRegistry:
     project_tags: set[str]
     special_tags: set[str]
     exact_untagged: str
+
+
+@dataclass(frozen=True)
+class FrontmatterDocument:
+    metadata: dict[str, Any]
+    body: str
+    had_frontmatter: bool
 
 
 def utc_now() -> datetime:
@@ -123,37 +134,45 @@ def ensure_relative(path: Path) -> str:
         return path.as_posix()
 
 
-def read_frontmatter(path: Path) -> dict[str, str]:
-    metadata: dict[str, str] = {}
+def split_frontmatter_text(text: str) -> FrontmatterDocument:
+    if not text.startswith("---\n"):
+        return FrontmatterDocument(metadata={}, body=text, had_frontmatter=False)
+
+    end_marker = text.find("\n---\n", 4)
+    if end_marker == -1:
+        return FrontmatterDocument(metadata={}, body=text, had_frontmatter=False)
+
+    raw_frontmatter = text[4:end_marker]
+    body = text[end_marker + len("\n---\n"):]
+    parsed = yaml.safe_load(raw_frontmatter) if raw_frontmatter.strip() else {}
+    if not isinstance(parsed, dict):
+        parsed = {}
+    return FrontmatterDocument(metadata=parsed, body=body, had_frontmatter=True)
+
+
+def read_frontmatter(path: Path) -> dict[str, Any]:
     if not path.exists():
-        return metadata
-    try:
-        with path.open("r", encoding="utf-8") as handle:
-            first = handle.readline()
-            if first.strip() != "---":
-                return metadata
-            for line in handle:
-                if line.strip() == "---":
-                    return metadata
-                match = re.match(r"^([A-Za-z0-9_-]+):\s*(.*)\s*$", line.rstrip("\n"))
-                if match:
-                    key, raw_value = match.groups()
-                    value = raw_value.strip()
-                    if value.startswith('"') and value.endswith('"'):
-                        try:
-                            value = json.loads(value)
-                        except json.JSONDecodeError:
-                            value = value.strip('"')
-                    metadata[key] = str(value)
-    except OSError:
         return {}
-    return metadata
+    try:
+        return split_frontmatter_text(path.read_text(encoding="utf-8")).metadata
+    except (OSError, yaml.YAMLError):
+        return {}
+
+
+def render_frontmatter(metadata: dict[str, Any], body: str) -> str:
+    frontmatter = yaml.safe_dump(
+        metadata,
+        sort_keys=False,
+        allow_unicode=True,
+        default_flow_style=False,
+    ).strip()
+    return f"---\n{frontmatter}\n---\n\n{body.lstrip()}"
 
 
 def read_frontmatter_hash(path: Path) -> str | None:
     metadata = read_frontmatter(path)
     content_hash = metadata.get("content_hash")
-    if content_hash and re.match(r"^sha256:[0-9a-f]{64}$", content_hash):
+    if isinstance(content_hash, str) and re.match(r"^sha256:[0-9a-f]{64}$", content_hash):
         return content_hash
     return None
 
@@ -173,6 +192,13 @@ def registry_hash() -> str | None:
     return file_sha256(registry_path)
 
 
+def source_families_hash() -> str | None:
+    source_families_path = ROOT / "data" / "registry" / "source-families.yaml"
+    if not source_families_path.exists():
+        return None
+    return file_sha256(source_families_path)
+
+
 def load_project_registry() -> ProjectRegistry:
     registry_path = ROOT / "data" / "registry" / "project-tags.yaml"
     if not registry_path.exists():
@@ -183,26 +209,29 @@ def load_project_registry() -> ProjectRegistry:
     special_tags: set[str] = set()
     exact_untagged = "[untagged] {Personal/admin context, not relevant to any AiStudio projects}"
 
-    current_tag: str | None = None
-    for line in registry_path.read_text(encoding="utf-8").splitlines():
-        tag_match = re.match(r"^\s+- tag:\s*([A-Za-z0-9-]+)\s*$", line)
-        if tag_match:
-            current_tag = tag_match.group(1)
-            canonical_tags.add(current_tag)
-            continue
+    try:
+        payload = yaml.safe_load(registry_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        raise RuntimeError(f"Invalid registry YAML: {ensure_relative(registry_path)}") from exc
 
-        kind_match = re.match(r"^\s+kind:\s*([A-Za-z0-9-]+)\s*$", line)
-        if kind_match and current_tag:
-            kind = kind_match.group(1)
-            if kind == "project":
-                project_tags.add(current_tag)
-            elif kind == "special":
-                special_tags.add(current_tag)
-            continue
+    tags = payload.get("tags")
+    if not isinstance(tags, list):
+        raise RuntimeError(f"Registry missing `tags` list: {ensure_relative(registry_path)}")
 
-        exact_match = re.match(r'^\s+exact_annotation:\s*"(.+)"\s*$', line)
-        if exact_match and current_tag == "untagged":
-            exact_untagged = exact_match.group(1)
+    for entry in tags:
+        if not isinstance(entry, dict):
+            continue
+        tag = entry.get("tag")
+        kind = entry.get("kind")
+        if not isinstance(tag, str) or not re.match(r"^[A-Za-z0-9-]+$", tag):
+            continue
+        canonical_tags.add(tag)
+        if kind == "project":
+            project_tags.add(tag)
+        elif kind == "special":
+            special_tags.add(tag)
+        if tag == "untagged" and isinstance(entry.get("exact_annotation"), str):
+            exact_untagged = entry["exact_annotation"]
 
     return ProjectRegistry(
         hash=registry_hash(),
@@ -514,6 +543,22 @@ def write_run_manifest(run_id: str, manifest: dict[str, Any]) -> WriteResult:
     return write_text_if_changed(manifest_path, payload)
 
 
+def finalize_manifest(manifest: dict[str, Any], started_at: datetime) -> None:
+    ended_at = utc_now()
+    manifest["ended_at"] = iso(ended_at)
+    manifest["duration_seconds"] = round((ended_at - started_at).total_seconds(), 3)
+    manifest.setdefault("mutations_performed", False)
+    manifest.setdefault("external_delivery", False)
+
+
+def count_statuses(items: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        status = str(item.get("status") or "unknown")
+        counts[status] = counts.get(status, 0) + 1
+    return counts
+
+
 def validation_report_path(run_id: str) -> Path:
     return ROOT / "logs" / "validation" / f"{run_id}.json"
 
@@ -527,16 +572,72 @@ def report_path(project: str, run_id: str, ended_at: datetime) -> Path:
     return ROOT / "data" / "reports" / project / day / f"{run_id}_state-of-project.md"
 
 
+def load_source_families() -> list[dict[str, Any]]:
+    source_families_path = ROOT / "data" / "registry" / "source-families.yaml"
+    if not source_families_path.exists():
+        return [
+            {
+                "name": source,
+                "default_project_run": True,
+                "reader_status": "not_implemented",
+                "lookback_overlap_hours": 48,
+            }
+            for source in DEFAULT_PROJECT_SOURCES
+        ]
+
+    try:
+        payload = yaml.safe_load(source_families_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        raise RuntimeError(f"Invalid source family YAML: {ensure_relative(source_families_path)}") from exc
+
+    families = payload.get("source_families")
+    if not isinstance(families, list):
+        raise RuntimeError(f"Source family registry missing `source_families`: {ensure_relative(source_families_path)}")
+
+    normalized: list[dict[str, Any]] = []
+    for family in families:
+        if not isinstance(family, dict):
+            continue
+        name = family.get("name")
+        if not isinstance(name, str) or not name.strip():
+            continue
+        normalized.append(family)
+    return normalized
+
+
+def project_run_source_families() -> list[dict[str, Any]]:
+    selected = [
+        family for family in load_source_families()
+        if family.get("default_project_run") is True
+    ]
+    if selected:
+        return selected
+    return [
+        {
+            "name": source,
+            "default_project_run": True,
+            "reader_status": "not_implemented",
+            "lookback_overlap_hours": 48,
+        }
+        for source in DEFAULT_PROJECT_SOURCES
+    ]
+
+
 def fireflies_fetch(args: argparse.Namespace) -> int:
     source_id = args.source_id
     command = [str(ROOT / "bin" / "fireflies-team"), "transcript", source_id, "--full"]
-    run_id = make_run_id()
+    started_at = utc_now()
+    run_id = make_run_id(started_at)
     manifest: dict[str, Any] = {
         "run_id": run_id,
-        "timestamp": iso(utc_now()),
+        "timestamp": iso(started_at),
+        "started_at": iso(started_at),
+        "trigger_source": "manual_cli",
         "source": FIREFLIES_SOURCE,
         "source_id": source_id,
         "command": " ".join(["bin/fireflies-team", "transcript", source_id, "--full"]),
+        "mutations_performed": False,
+        "external_delivery": False,
         "files": [],
         "validation_status": "not_run",
         "uncertain_tag_count": 0,
@@ -568,12 +669,14 @@ def fireflies_fetch(args: argparse.Namespace) -> int:
     except Exception as exc:  # noqa: BLE001 - CLI should manifest failures.
         manifest["errors"].append(str(exc))
         manifest["status"] = "failed"
+        finalize_manifest(manifest, started_at)
         manifest_result = write_run_manifest(run_id, manifest)
         print(f"Fireflies fetch failed. Manifest: {ensure_relative(manifest_result.path)}", file=sys.stderr)
         print(str(exc), file=sys.stderr)
         return 1
 
     manifest["status"] = "ok"
+    finalize_manifest(manifest, started_at)
     manifest_result = write_run_manifest(run_id, manifest)
 
     print(f"Fireflies transcript fetched: {source_id}")
@@ -613,10 +716,14 @@ def queue_item_for_untouched(untouched_path: Path, current_registry_hash: str | 
     item["tagged_source_content_hash"] = tagged_metadata.get("source_content_hash")
     item["tagged_registry_hash"] = tagged_metadata.get("registry_hash")
     item["uncertain_annotation_count"] = parse_int(tagged_metadata.get("uncertain_annotation_count"))
+    item["annotation_count"] = parse_int(tagged_metadata.get("annotation_count"))
 
     if not tagged_metadata.get("source_content_hash") or not tagged_metadata.get("registry_hash"):
         item["status"] = "stale_metadata"
         item["reason"] = "tagged file missing tagger metadata"
+    elif tagged_metadata.get("tag_status") == "prepared":
+        item["status"] = "needs_tagging"
+        item["reason"] = "tagged copy is prepared but not yet annotated"
     elif tagged_metadata.get("source_content_hash") != source_hash:
         item["status"] = "stale_source"
         item["reason"] = "untouched source content hash changed"
@@ -626,6 +733,9 @@ def queue_item_for_untouched(untouched_path: Path, current_registry_hash: str | 
     elif tagged_metadata.get("tag_status") in {"needs_review", "failed"}:
         item["status"] = tagged_metadata.get("tag_status")
         item["reason"] = "tagger marked file for attention"
+    elif tagged_metadata.get("tag_status") != "tagged":
+        item["status"] = "stale_metadata"
+        item["reason"] = "tagged file has unknown tag_status"
     elif item["uncertain_annotation_count"] > 0:
         item["status"] = "needs_review"
         item["reason"] = "uncertain annotations need review"
@@ -673,6 +783,103 @@ def queue(args: argparse.Namespace) -> int:
     for item in shown:
         print(f"- {item['status']}: {item['source_file']} -> {item['tagged_file']}")
         print(f"  reason: {item['reason']}")
+    return 0
+
+
+def resolve_path_argument(path_value: str) -> Path:
+    candidate = Path(path_value)
+    if not candidate.is_absolute():
+        candidate = ROOT / candidate
+    return candidate.resolve()
+
+
+def annotation_summary_for_text(text: str, registry: ProjectRegistry) -> tuple[int, int, list[dict[str, Any]]]:
+    annotation_count = 0
+    uncertain_count = 0
+    errors: list[dict[str, Any]] = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        annotation, line_errors = validate_annotation_line(line, line_number, registry)
+        errors.extend(line_errors)
+        if annotation:
+            annotation_count += 1
+            if annotation.get("uncertain"):
+                uncertain_count += 1
+    return annotation_count, uncertain_count, errors
+
+
+def infer_tag_status(annotation_count: int, uncertain_count: int) -> str:
+    if annotation_count == 0:
+        return "prepared"
+    if uncertain_count > 0:
+        return "needs_review"
+    return "tagged"
+
+
+def tag(args: argparse.Namespace) -> int:
+    untouched_path = resolve_path_argument(args.path)
+    untouched_root = ROOT / "data" / "raw" / "untouched"
+    try:
+        untouched_path.relative_to(untouched_root)
+    except ValueError:
+        print(f"Tag command expects a path under {ensure_relative(untouched_root)}", file=sys.stderr)
+        print(f"- got: {untouched_path}", file=sys.stderr)
+        return 2
+
+    if not untouched_path.exists():
+        print(f"Untouched source log does not exist: {ensure_relative(untouched_path)}", file=sys.stderr)
+        return 2
+
+    registry = load_project_registry()
+    tagged_path = tagged_path_for_untouched(untouched_path)
+    source_text = untouched_path.read_text(encoding="utf-8")
+    source_doc = split_frontmatter_text(source_text)
+    source_metadata = dict(source_doc.metadata)
+    source_hash = source_metadata.get("content_hash")
+    if not isinstance(source_hash, str) or not re.match(r"^sha256:[0-9a-f]{64}$", source_hash):
+        source_hash = file_sha256(untouched_path)
+
+    existing_metadata: dict[str, Any] = {}
+    if tagged_path.exists():
+        tagged_text = tagged_path.read_text(encoding="utf-8")
+        tagged_doc = split_frontmatter_text(tagged_text)
+        existing_metadata = dict(tagged_doc.metadata)
+        body = tagged_doc.body
+    else:
+        body = source_doc.body
+
+    annotation_count, uncertain_count, annotation_errors = annotation_summary_for_text(body, registry)
+    if annotation_errors:
+        print("Tag command found invalid annotation syntax or noncanonical tags.", file=sys.stderr)
+        for error in annotation_errors[:20]:
+            print(f"- line {error['line']}: {error['code']} - {error['message']}", file=sys.stderr)
+        if len(annotation_errors) > 20:
+            print(f"- additional errors: {len(annotation_errors) - 20}", file=sys.stderr)
+        return 1
+
+    tag_status = infer_tag_status(annotation_count, uncertain_count)
+    updates = {
+        "source_content_hash": source_hash,
+        "tag_status": tag_status,
+        "tagger": "codex",
+        "tagger_version": TAGGER_VERSION,
+        "registry_hash": registry.hash,
+        "annotation_count": annotation_count,
+        "uncertain_annotation_count": uncertain_count,
+    }
+    stable = all(existing_metadata.get(key) == value for key, value in updates.items())
+    updates["tagged_at"] = existing_metadata.get("tagged_at") if stable and existing_metadata.get("tagged_at") else iso(utc_now())
+
+    tagged_metadata = dict(source_metadata)
+    tagged_metadata.update(updates)
+    tagged_content = render_frontmatter(tagged_metadata, body)
+    result = write_text_if_changed(tagged_path, tagged_content)
+
+    print(f"Tagged copy {result.status}: {ensure_relative(tagged_path)}")
+    print(f"- tag_status: {tag_status}")
+    print(f"- annotations: {annotation_count}")
+    print(f"- uncertain: {uncertain_count}")
+    if tag_status == "prepared":
+        print("- next: add canonical annotations, then rerun this command")
     return 0
 
 
@@ -771,6 +978,47 @@ def validate_tagged_file(path: Path, registry: ProjectRegistry) -> dict[str, Any
                 "message": f"Tagged file missing `{key}` metadata.",
             })
 
+    tag_status = metadata.get("tag_status")
+    if tag_status and tag_status not in ALLOWED_TAG_STATUSES:
+        errors.append({
+            "line": 1,
+            "code": "invalid_tag_status",
+            "message": f"Unsupported tag_status `{tag_status}`.",
+        })
+
+    untouched_path: Path | None = None
+    try:
+        tagged_root = ROOT / "data" / "raw" / "tagged"
+        untouched_path = ROOT / "data" / "raw" / "untouched" / path.relative_to(tagged_root)
+    except ValueError:
+        warnings.append({
+            "line": 1,
+            "code": "tagged_path_outside_contract",
+            "message": "Tagged file is not under data/raw/tagged.",
+        })
+    if untouched_path:
+        if not untouched_path.exists():
+            errors.append({
+                "line": 1,
+                "code": "missing_untouched_source",
+                "message": f"Matching untouched source log is missing: {ensure_relative(untouched_path)}",
+            })
+        else:
+            untouched_metadata = read_frontmatter(untouched_path)
+            untouched_hash = untouched_metadata.get("content_hash")
+            if untouched_hash and metadata.get("source_content_hash") != untouched_hash:
+                warnings.append({
+                    "line": 1,
+                    "code": "stale_source_content_hash",
+                    "message": "Tagged source_content_hash does not match untouched content_hash.",
+                })
+    if registry.hash and metadata.get("registry_hash") and metadata.get("registry_hash") != registry.hash:
+        warnings.append({
+            "line": 1,
+            "code": "stale_registry_hash",
+            "message": "Tagged registry_hash does not match current project registry.",
+        })
+
     annotation_count = 0
     uncertain_count = 0
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
@@ -786,6 +1034,18 @@ def validate_tagged_file(path: Path, registry: ProjectRegistry) -> dict[str, Any
             "line": 1,
             "code": "no_annotations",
             "message": "Tagged file contains no project annotations.",
+        })
+    if tag_status == "tagged" and annotation_count == 0:
+        errors.append({
+            "line": 1,
+            "code": "tagged_without_annotations",
+            "message": "tag_status=tagged requires at least one annotation.",
+        })
+    if tag_status == "prepared" and annotation_count > 0:
+        warnings.append({
+            "line": 1,
+            "code": "prepared_with_annotations",
+            "message": "Tagged file has annotations but tag_status is still prepared; rerun the tag command.",
         })
 
     declared_annotations = parse_int(metadata.get("annotation_count"))
@@ -979,23 +1239,35 @@ def compute_report_window(project: str, now: datetime) -> tuple[datetime, dateti
 
 def build_source_fetch_plan(project: str, now: datetime) -> list[dict[str, Any]]:
     plans: list[dict[str, Any]] = []
-    for source in DEFAULT_PROJECT_SOURCES:
+    for family in project_run_source_families():
+        source = str(family["name"])
         source_cursor_path = cursor_path(project, source)
+        default_overlap = parse_int(str(family.get("lookback_overlap_hours", 48))) or 48
         cursor = read_json_file(source_cursor_path, {
             "project": project,
             "source": source,
-            "lookback_overlap_hours": 48,
+            "lookback_overlap_hours": default_overlap,
             "seen_keys": {},
         })
         start, end, overlap_hours = compute_source_window(cursor, now)
+        reader_status = str(family.get("reader_status") or "not_implemented")
+        reason = str(family.get("skip_reason") or "batch reader not implemented yet")
+        if reader_status not in {"implemented", "single_fetch_only"}:
+            status = "skipped"
+        else:
+            status = "skipped"
+            reason = "batch reader not wired into run-project yet"
         plans.append({
             "source": source,
             "cursor_path": ensure_relative(source_cursor_path),
             "fetch_start": iso(start),
             "fetch_end": iso(end),
             "lookback_overlap_hours": overlap_hours,
-            "status": "skipped",
-            "reason": "batch reader not implemented yet",
+            "status": status,
+            "reason": reason,
+            "reader_status": reader_status,
+            "source_class": family.get("source_class"),
+            "canonical_for": family.get("canonical_for", []),
             "cursor_advanced": False,
         })
     return plans
@@ -1082,7 +1354,7 @@ def render_project_report(
         "",
         "## Pipeline Checks",
         "",
-        f"- Queue: `{queue_payload['counts']}`",
+        f"- Derived tagging worklist (`queue` command): `{queue_payload['counts']}`",
         f"- Validation: `{validation_report['status']}` "
         f"({validation_report['error_count']} errors, {validation_report['warning_count']} warnings)",
     ])
@@ -1091,14 +1363,19 @@ def render_project_report(
 
 def run_project(args: argparse.Namespace) -> int:
     project = args.project
-    now = utc_now()
-    run_id = make_run_id(now)
+    started_at = utc_now()
+    now = started_at
+    run_id = make_run_id(started_at)
     manifest: dict[str, Any] = {
         "run_id": run_id,
-        "timestamp": iso(now),
+        "timestamp": iso(started_at),
+        "started_at": iso(started_at),
+        "trigger_source": "manual_cli",
         "command": f"run-project {project}",
         "project": project,
         "status": "started",
+        "mutations_performed": False,
+        "external_delivery": False,
         "warnings": [],
         "errors": [],
     }
@@ -1117,11 +1394,13 @@ def run_project(args: argparse.Namespace) -> int:
         ]
 
         manifest["registry_hash"] = registry.hash
+        manifest["source_families_hash"] = source_families_hash()
         manifest["windows"] = {
             "report_start": iso(report_start),
             "report_end": iso(report_end),
         }
         manifest["source_fetches"] = source_fetches
+        manifest["source_status_counts"] = count_statuses(source_fetches)
         manifest["queue"] = {
             "total": queue_payload["total"],
             "counts": queue_payload["counts"],
@@ -1131,6 +1410,7 @@ def run_project(args: argparse.Namespace) -> int:
         if blocking_items:
             manifest["status"] = "tagging_required"
             manifest["errors"].append("Tagging worklist has non-current items.")
+            finalize_manifest(manifest, started_at)
             manifest_result = write_run_manifest(run_id, manifest)
             print(f"Project run requires tagging: {project}", file=sys.stderr)
             print(f"- blocking items: {len(blocking_items)}", file=sys.stderr)
@@ -1149,6 +1429,7 @@ def run_project(args: argparse.Namespace) -> int:
         if validation_report["status"] != "ok":
             manifest["status"] = "validation_failed"
             manifest["errors"].append("Tagged-log validation failed.")
+            finalize_manifest(manifest, started_at)
             manifest_result = write_run_manifest(run_id, manifest)
             print(f"Project run validation failed: {project}", file=sys.stderr)
             print(f"- manifest: {ensure_relative(manifest_result.path)}", file=sys.stderr)
@@ -1229,12 +1510,14 @@ def run_project(args: argparse.Namespace) -> int:
     except Exception as exc:  # noqa: BLE001 - CLI should manifest failures.
         manifest["status"] = "failed"
         manifest["errors"].append(str(exc))
+        finalize_manifest(manifest, started_at)
         manifest_result = write_run_manifest(run_id, manifest)
         print(f"Project run failed: {project}", file=sys.stderr)
         print(str(exc), file=sys.stderr)
         print(f"- manifest: {ensure_relative(manifest_result.path)}", file=sys.stderr)
         return 1
 
+    finalize_manifest(manifest, started_at)
     manifest_result = write_run_manifest(run_id, manifest)
     print(f"Project run complete: {project}")
     print(f"- status: {manifest['status']}")
@@ -1271,9 +1554,9 @@ def build_parser() -> argparse.ArgumentParser:
     queue_parser.add_argument("--all", action="store_true", help="Include current files in text output")
     queue_parser.set_defaults(func=queue)
 
-    tag = subparsers.add_parser("tag", help="Reserved for project tagger")
-    tag.add_argument("path", nargs="?", help="Untouched Markdown file")
-    tag.set_defaults(func=lambda _args: not_implemented("tag"))
+    tag_parser = subparsers.add_parser("tag", help="Create/update tagged copy metadata")
+    tag_parser.add_argument("path", help="Untouched Markdown file")
+    tag_parser.set_defaults(func=tag)
 
     validate_parser = subparsers.add_parser("validate", help="Validate tagged logs")
     validate_parser.set_defaults(func=validate)

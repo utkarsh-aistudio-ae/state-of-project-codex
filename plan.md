@@ -216,6 +216,11 @@ Create:
 data/registry/annotation-syntax.md
 data/registry/filesystem-layout.md
 data/registry/project-tags.yaml
+data/registry/source-families.yaml
+data/registry/source-families.md
+data/registry/runtime-state.md
+data/registry/scheduled-run-contract.md
+data/registry/reporting-contract.md
 ```
 
 These files are the source of truth for readers, tagger, parser, and later
@@ -336,9 +341,12 @@ Notes:
 
 Acceptance criteria:
 
-- all three files exist
+- all shared contract files exist
 - syntax and folder layout match the user-approved decisions
 - no extra initial tags are invented
+- source families are not hardcoded only in scripts
+- scheduled runs have an explicit metadata contract
+- synthesis and report writing are separate concepts
 
 ## Phase 2: Create Thin Orchestrator Skeleton
 
@@ -386,8 +394,9 @@ python3 scripts/project_intel.py run-project Argos-ddt
 ```
 
 The external scheduler owns timing. `run-project` computes filesystem cursor
-windows, records source coverage gaps for unimplemented batch readers, requires
-the tagging worklist to be clear, validates/extracts evidence, writes a private
+windows, reads default sources from `data/registry/source-families.yaml`, records
+source coverage gaps for unimplemented batch readers, requires the derived
+tagging worklist to be clear, validates/extracts evidence, writes a private
 state-of-project report, writes a private run manifest, and advances the report
 cursor only when source coverage is acceptable and the run succeeds.
 
@@ -395,9 +404,10 @@ Skeleton responsibilities:
 
 - call the relevant reader
 - create the untouched path
-- show a derived tagging queue
-- run tagger
-- let the tagger create/update the tagged copy
+- show a derived tagging worklist via the `queue` command
+- run the deterministic tag helper to prepare/update tagged copy metadata
+- let Codex add canonical annotations through the `project-tagger` skill
+- rerun the deterministic tag helper to finalize tagger metadata
 - run validator/parser
 - write a run manifest
 - print a concise summary
@@ -412,11 +422,16 @@ Manifest should include:
 
 - run id
 - timestamp
+- started_at, ended_at, and duration_seconds
+- trigger_source
 - source
 - source id
 - files written
+- source status counts
 - validation status
 - uncertain tag count
+- mutations_performed
+- external_delivery
 - errors/warnings
 
 Acceptance criteria:
@@ -428,6 +443,12 @@ Acceptance criteria:
 - CLI behavior remains replaceable by a future orchestration architecture
 - architectural decisions are captured as open decisions rather than silently
   encoded in implementation structure
+
+Current orchestration recipe:
+
+```text
+orchestrations/state-of-project-nightly.md
+```
 
 ## Phase 3: Fireflies Reader
 
@@ -917,9 +938,52 @@ Acceptance criteria:
 - repeated mentions do not duplicate events
 - uncertain items are visible but not treated as confirmed facts
 
-## Phase 11: Daily/Weekly Report Writer
+## Phase 11: Project State Synthesizer
 
-Build after timeline keeper or as a simpler consumer of tagged notes.
+Build after parser output is reliable and before the report writer becomes
+responsible for intelligence.
+
+Input:
+
+```text
+data/derived/tagged-notes.jsonl
+```
+
+Responsibilities:
+
+- consume confirmed extracted evidence records
+- include uncertain records only as review signals
+- infer chronology across sources
+- identify decisions, commitments, blockers, risks, open questions, and shipped
+  work
+- compare conversations, GitHub activity, deployments, and task state once those
+  sources exist
+- separate observed source facts from interpretation
+- assign confidence and missing-evidence caveats
+- avoid creating authoritative entries from uncertain tags alone
+
+Suggested output:
+
+```text
+data/projects/<Project-tag>/synthesis/<run-id>_synthesis.json
+data/projects/<Project-tag>/synthesis/<run-id>_synthesis.md
+```
+
+Acceptance criteria:
+
+- synthesis cites evidence records
+- chronology is explicit
+- source gaps and missing evidence are visible
+- facts and inferences are clearly separated
+- uncertain records are not treated as confirmed state
+
+## Phase 12: State Report Writer
+
+Build after the project-state synthesizer, or keep the current placeholder
+report as a skeleton until synthesis exists.
+
+The report writer owns presentation, not deep interpretation. It consumes
+synthesis output and source coverage metadata.
 
 First report shape:
 
@@ -943,11 +1007,13 @@ It should include uncertain tags until resolved.
 Acceptance criteria:
 
 - report can cite source files/links
+- report consumes synthesis output once available
 - report distinguishes confirmed vs uncertain
 - report lists skipped/unavailable sources
 - no secrets are included
+- PDF is treated as a derivative of canonical markdown/JSON when added later
 
-## Phase 12: Issue Auditor And Writer
+## Phase 13: Issue Auditor And Writer
 
 Do not build this early.
 

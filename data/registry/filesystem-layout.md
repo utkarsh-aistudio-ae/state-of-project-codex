@@ -26,8 +26,11 @@ data/
 
 - Readers write untouched logs only.
 - Tagged logs are editable copies created or updated by the tagger.
-- A tagged file's existence means the tagger has claimed or processed that
-  source log, not merely that the source is waiting for tags.
+- A tagged file's existence means the tagger or deterministic tag helper has
+  claimed the source log. It is complete only when tagger metadata marks it
+  `tag_status: "tagged"` or `tag_status: "needs_review"`.
+- `tag_status: "prepared"` means the tagged copy exists but still needs Codex
+  annotations. The derived worklist should surface it as `needs_tagging`.
 - The tagger edits only `data/raw/tagged/...`.
 - Untouched logs should remain stable for audit and reprocessing.
 - Queue state is derived from untouched files, tagged files, source hashes, and

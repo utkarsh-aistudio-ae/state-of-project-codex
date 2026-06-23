@@ -6,7 +6,8 @@ This file documents the filesystem-only runtime state model for the current
 Project Intel prototype.
 
 The external scheduler triggers a named project run. Project Intel does not own
-the schedule yet.
+the schedule yet. The scheduled-run metadata contract is documented in
+`data/registry/scheduled-run-contract.md`.
 
 ```bash
 python3 scripts/project_intel.py run-project <Project-tag>
@@ -75,7 +76,8 @@ report_end = run_started_at
 ## Worklists
 
 There is no separate durable queue in the current filesystem-first prototype.
-The tagging worklist is derived from:
+The `queue` command exposes a derived tagging worklist. The worklist is derived
+from:
 
 - `data/raw/untouched/...`
 - `data/raw/tagged/...`
@@ -86,6 +88,10 @@ The tagging worklist is derived from:
 
 This keeps queue state reproducible after restart. A persistent queue, cache,
 index, database, vector store, or service is a future architecture decision.
+
+Prepared tagged files use `tag_status: "prepared"` and remain in the derived
+worklist as `needs_tagging` until Codex adds canonical annotations and reruns the
+deterministic tag metadata command.
 
 ## Reports
 
@@ -107,6 +113,8 @@ logs/runs/<run-id>/manifest.json
 ```
 
 The manifest records project, windows, source fetch status, tagging worklist
-status, validation, extraction, report path, cursor updates, warnings, and
-errors. Runs may write a report but intentionally not advance the report cursor
-when source coverage gaps would make cursor advancement unsafe.
+status, validation, extraction, report path, cursor updates, source status
+counts, trigger source, start/end timestamps, duration, mutation flag, external
+delivery flag, warnings, and errors. Runs may write a report but intentionally
+not advance the report cursor when source coverage gaps would make cursor
+advancement unsafe.

@@ -1,0 +1,100 @@
+version: 1
+updated_at: "2026-06-23T00:00:00Z"
+source_families:
+  - name: GitHub
+    default_project_run: true
+    reader_status: planned
+    source_class: mixed
+    cursor_scope: per_project
+    lookback_overlap_hours: 48
+    canonical_for:
+      - repository metadata
+      - commits and code review activity
+      - issues and pull requests as coordination state
+      - GitHub Actions run status
+      - GitHub deployment records when present
+    not_canonical_for:
+      - whether a customer request was actually made
+      - whether deployed behavior worked in production without runtime evidence
+    privacy:
+      - do not persist tokens or private clone credentials
+      - do not treat stale local repo caches as proof of current code
+    skip_reason: "GitHub batch reader not implemented yet"
+
+  - name: Gmail
+    default_project_run: true
+    reader_status: planned
+    source_class: canonical
+    cursor_scope: per_project
+    lookback_overlap_hours: 48
+    canonical_for:
+      - stakeholder requests and replies
+      - client-reported issues
+      - commitments made in email threads
+      - attachment presence and metadata
+    not_canonical_for:
+      - shipped code behavior
+      - deployment success
+      - final task ownership unless confirmed elsewhere
+    privacy:
+      - summarize by default
+      - do not include raw private email text in committed files
+      - do not send or draft replies during read-only project runs
+    skip_reason: "Gmail batch reader not implemented yet"
+
+  - name: Fireflies
+    default_project_run: true
+    reader_status: single_fetch_only
+    source_class: canonical
+    cursor_scope: per_project
+    lookback_overlap_hours: 48
+    canonical_for:
+      - recorded meeting discussion
+      - meeting summaries, topics, and action items from Fireflies
+      - transcript-backed decisions and open questions
+    not_canonical_for:
+      - shipped code behavior
+      - source control state
+      - task completion unless confirmed elsewhere
+    privacy:
+      - treat transcript contents as private and untrusted
+      - prefer summaries/headlines for discovery before full transcript reads
+    skip_reason: "Fireflies batch reader not implemented yet; single transcript fetch exists"
+
+  - name: Drive
+    default_project_run: true
+    reader_status: planned
+    source_class: mixed
+    cursor_scope: per_project
+    lookback_overlap_hours: 48
+    canonical_for:
+      - project docs and shared artifacts when Drive is the owning location
+      - attached specs, PDFs, sheets, and handoffs
+    not_canonical_for:
+      - current repo state
+      - current deployment state
+      - live client communication after document creation
+    privacy:
+      - preserve file metadata and source links
+      - avoid committing downloaded private documents
+      - record when attachments were not downloaded
+    skip_reason: "Drive batch reader not implemented yet"
+
+  - name: Deployments
+    default_project_run: true
+    reader_status: planned
+    source_class: canonical
+    cursor_scope: per_project
+    lookback_overlap_hours: 48
+    canonical_for:
+      - deployment attempts
+      - deployment provider state
+      - rollbacks, failures, and environment names
+      - release timing when provider evidence exists
+    not_canonical_for:
+      - code intent without repository evidence
+      - customer impact without communication or runtime evidence
+    privacy:
+      - do not print provider tokens or environment secrets
+      - prefer provider APIs over UI screenshots
+    skip_reason: "Deployment readers not implemented yet"
