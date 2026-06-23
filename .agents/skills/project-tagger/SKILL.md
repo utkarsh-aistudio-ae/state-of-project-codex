@@ -46,9 +46,10 @@ annotation_count: 0
 uncertain_annotation_count: 0
 ```
 
-Use `tag_status: "needs_review"` when uncertainty or ambiguity should block
-downstream authoritative use. Use `tag_status: "failed"` only when tagging was
-attempted but could not be completed.
+Use `tag_status: "needs_review"` only when uncertainty or ambiguity should block
+downstream authoritative use. Do not use `needs_review` merely because content is
+`untagged` under the current registry. Use `tag_status: "failed"` only when
+tagging was attempted but could not be completed.
 
 ## Annotation Rules
 
