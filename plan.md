@@ -1056,6 +1056,7 @@ Responsibilities:
   sources exist
 - separate observed source facts from interpretation
 - assign confidence and missing-evidence caveats
+- include a compact self-evaluation with known weaknesses and human-review needs
 - avoid creating authoritative entries from uncertain tags alone
 
 Suggested output:
@@ -1074,7 +1075,9 @@ python3 scripts/project_intel.py synthesize-project-state <Project-tag>
 The deterministic command prepares private JSON/Markdown synthesis artifacts
 from validated extracted evidence. The `project-state-synthesizer` skill fills
 the reasoning fields. The command does not advance the report cursor and does
-not treat uncertain records as authoritative evidence.
+not treat uncertain records as authoritative evidence. Every synthesis artifact
+must include `self_evaluation` so downstream report writing can see the
+synthesizer's own confidence, weaknesses, and review needs.
 
 Acceptance criteria:
 
@@ -1083,6 +1086,7 @@ Acceptance criteria:
 - source gaps and missing evidence are visible
 - facts and inferences are clearly separated
 - uncertain records are not treated as confirmed state
+- self-evaluation is filled and does not hide source gaps or weak evidence
 
 ## Phase 12: State Report Writer
 

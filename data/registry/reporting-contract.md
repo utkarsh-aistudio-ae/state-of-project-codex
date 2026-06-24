@@ -35,6 +35,9 @@ Responsibilities:
   newly-linked resources from uncertain candidate resources
 - separate source facts from interpretation
 - assign confidence and missing-evidence caveats
+- include a compact self-evaluation of evidence faithfulness, chronology,
+  cross-source reasoning, uncertainty handling, source coverage honesty, known
+  weaknesses, and human-review needs
 - avoid creating authoritative entries from uncertain tags alone
 
 The synthesizer should produce structured synthesis, not a polished management
@@ -51,7 +54,8 @@ uncertain evidence to the project report window, writes private prepared
 synthesis JSON/Markdown artifacts, and writes a run manifest. It blocks on
 stale/missing/prepared/failed tagging work, but lets `needs_review` items
 through as review signals so Codex can surface uncertainty without treating it
-as fact. It does not advance the report cursor.
+as fact. It scaffolds `self_evaluation` for Codex to fill during synthesis. It
+does not advance the report cursor.
 
 Suggested output path:
 

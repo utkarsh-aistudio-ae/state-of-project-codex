@@ -50,6 +50,7 @@ manifests. Codex owns the judgment inside the prepared synthesis artifact.
    - fill `synthesis.missing_evidence_caveats`
    - preserve uncertain records in `synthesis.review_signals`
    - set `synthesis.confidence` to `high`, `medium`, or `low`
+   - fill `self_evaluation`
 8. Keep the Markdown synthesis aligned with the JSON so a later report writer
    can consume either artifact.
 9. Validate edited JSON with:
@@ -78,6 +79,8 @@ manifests. Codex owns the judgment inside the prepared synthesis artifact.
 - Do not infer completion from conversation alone when GitHub/deployment/task
   evidence is required.
 - Do not infer client approval from internal implementation evidence alone.
+- End with a compact self-evaluation. Do not grade generously just because the
+  output is well written.
 - Do not create tickets, send emails, update deployments, open PRs, or write to
   external systems.
 
@@ -102,3 +105,38 @@ Preferred JSON item shape:
 Use `status: "review"` only for uncertain records or unresolved conflicts. Do
 not make authoritative chronology, shipped-work, or commitment entries from
 uncertain records alone.
+
+## Self Evaluation
+
+Fill `self_evaluation` after the synthesis sections are complete. Use
+`high`, `medium`, or `low` for the six score fields:
+
+- `overall_confidence`
+- `evidence_faithfulness`
+- `chronology_quality`
+- `cross_source_reasoning`
+- `uncertainty_handling`
+- `source_coverage_honesty`
+
+Add concise bullets to:
+
+- `known_weaknesses`: limitations in the synthesis, such as missing deployment
+  provider evidence, thin GitHub/task evidence, weak chronology, or source
+  coverage gaps.
+- `needs_human_review`: concrete items a reviewer should confirm before the
+  synthesis is used in a management report, ticket proposal, or external
+  update.
+
+Evaluation rules:
+
+- Mark `evidence_faithfulness` low if any important claim lacks evidence.
+- Mark `chronology_quality` low if ordering depends on inference rather than
+  source timestamps.
+- Mark `cross_source_reasoning` low if sources are merely listed instead of
+  compared.
+- Mark `uncertainty_handling` low if any `?Project` record becomes an
+  authoritative fact.
+- Mark `source_coverage_honesty` low if skipped or unavailable sources are not
+  called out.
+- Use `overall_confidence` as the minimum reasonable trust level across the
+  material weaknesses, not as an average.
