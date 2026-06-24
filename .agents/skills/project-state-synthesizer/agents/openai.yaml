@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project State Synthesizer"
+  short_description: "Turn tagged Project Intel evidence into source-backed project state."
+  default_prompt: "Use $project-state-synthesizer to synthesize project state from tagged evidence."

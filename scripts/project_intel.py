@@ -625,6 +625,18 @@ def report_path(project: str, run_id: str, ended_at: datetime) -> Path:
     return ROOT / "data" / "reports" / project / day / f"{run_id}_state-of-project.md"
 
 
+def synthesis_dir(project: str) -> Path:
+    return ROOT / "data" / "projects" / project / "synthesis"
+
+
+def synthesis_json_path(project: str, run_id: str) -> Path:
+    return synthesis_dir(project) / f"{run_id}_synthesis.json"
+
+
+def synthesis_markdown_path(project: str, run_id: str) -> Path:
+    return synthesis_dir(project) / f"{run_id}_synthesis.md"
+
+
 def load_source_families() -> list[dict[str, Any]]:
     source_families_path = ROOT / "data" / "registry" / "source-families.yaml"
     if not source_families_path.exists():
@@ -2964,6 +2976,306 @@ def filter_project_records(
     return confirmed, uncertain
 
 
+def record_sort_key(record: dict[str, Any]) -> tuple[str, str, int]:
+    return (
+        str(record.get("occurred_at") or ""),
+        str(record.get("source_file") or ""),
+        parse_int(record.get("block_start_line")),
+    )
+
+
+def truncate_text(value: Any, max_chars: int = 2400) -> str:
+    text = str(value or "").strip()
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 20].rstrip() + "\n...[truncated]"
+
+
+def evidence_record_id(record: dict[str, Any]) -> str:
+    payload = {
+        "project": record.get("project"),
+        "tag": record.get("tag"),
+        "source_file": record.get("source_file"),
+        "block_start_line": record.get("block_start_line"),
+        "block_end_line": record.get("block_end_line"),
+        "note": record.get("note"),
+    }
+    return "ev_" + json_hash(payload).removeprefix("sha256:")[:16]
+
+
+def frontmatter_cache_for_records(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    cache: dict[str, dict[str, Any]] = {}
+    for record in records:
+        source_file = record.get("source_file")
+        if not isinstance(source_file, str) or source_file in cache:
+            continue
+        path = ROOT / source_file
+        cache[source_file] = read_frontmatter(path)
+    return cache
+
+
+def compact_evidence_record(
+    record: dict[str, Any],
+    metadata_cache: dict[str, dict[str, Any]],
+    excerpt_chars: int = 2400,
+) -> dict[str, Any]:
+    source_file = str(record.get("source_file") or "")
+    metadata = metadata_cache.get(source_file, {})
+    return {
+        "record_id": evidence_record_id(record),
+        "project": record.get("project"),
+        "tag": record.get("tag"),
+        "uncertain": bool(record.get("uncertain")),
+        "special": bool(record.get("special")),
+        "note": record.get("note"),
+        "source": record.get("source"),
+        "source_id": record.get("source_id"),
+        "source_title": metadata.get("title"),
+        "source_ref": metadata.get("source_ref"),
+        "occurred_at": record.get("occurred_at"),
+        "source_file": source_file,
+        "block_start_line": record.get("block_start_line"),
+        "block_end_line": record.get("block_end_line"),
+        "block_text_hash": json_hash(record.get("block_text") or ""),
+        "block_text_excerpt": truncate_text(record.get("block_text"), excerpt_chars),
+    }
+
+
+def count_records_by_key(records: list[dict[str, Any]], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for record in records:
+        value = str(record.get(key) or "unknown")
+        counts[value] = counts.get(value, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def source_coverage_snapshot(now: datetime) -> list[dict[str, Any]]:
+    coverage: list[dict[str, Any]] = []
+    for family in load_source_families():
+        source = str(family.get("name") or "unknown")
+        cursor_file = data_fetch_cursor_path(source)
+        cursor = read_json_file(cursor_file, {})
+        last_fetch = cursor.get("last_successful_fetch_at") if isinstance(cursor, dict) else None
+        coverage.append({
+            "source": source,
+            "reader_status": family.get("reader_status"),
+            "source_class": family.get("source_class"),
+            "fetch_cursor_owner": family.get("fetch_cursor_owner"),
+            "tagging_cursor_owner": family.get("tagging_cursor_owner"),
+            "last_successful_fetch_at": last_fetch,
+            "cursor_path": ensure_relative(cursor_file),
+            "current_window_preview": {
+                "start": iso(compute_source_window(cursor if isinstance(cursor, dict) else {}, now)[0]),
+                "end": iso(now),
+            },
+            "canonical_for": family.get("canonical_for", []),
+            "not_canonical_for": family.get("not_canonical_for", []),
+            "skip_reason": family.get("skip_reason"),
+        })
+    return coverage
+
+
+def review_items_from_queue(queue_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        item for item in queue_payload.get("items", [])
+        if item.get("work_required") and item.get("status") == "needs_review"
+    ]
+
+
+def blocking_items_from_queue(queue_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        item for item in queue_payload.get("items", [])
+        if item.get("work_required") and item.get("status") != "needs_review"
+    ]
+
+
+def build_synthesis_payload(
+    project: str,
+    run_id: str,
+    generated_at: datetime,
+    report_start: datetime,
+    report_end: datetime,
+    registry: ProjectRegistry,
+    validation_report: dict[str, Any],
+    validation_path: Path | None,
+    extraction_result: WriteResult,
+    queue_payload: dict[str, Any],
+    confirmed_records: list[dict[str, Any]],
+    uncertain_records: list[dict[str, Any]],
+) -> dict[str, Any]:
+    ordered_confirmed = sorted(confirmed_records, key=record_sort_key)
+    ordered_uncertain = sorted(uncertain_records, key=record_sort_key)
+    metadata_cache = frontmatter_cache_for_records([*ordered_confirmed, *ordered_uncertain])
+    compact_confirmed = [
+        compact_evidence_record(record, metadata_cache)
+        for record in ordered_confirmed
+    ]
+    compact_uncertain = [
+        compact_evidence_record(record, metadata_cache)
+        for record in ordered_uncertain
+    ]
+    return {
+        "schema_version": 1,
+        "artifact_type": "project_state_synthesis",
+        "synthesis_status": "prepared",
+        "project": project,
+        "run_id": run_id,
+        "generated_at": iso(generated_at),
+        "window": {
+            "start": iso(report_start),
+            "end": iso(report_end),
+            "policy": "max(last_successful_report_at, run_started_at - 7 days)",
+        },
+        "registry": {
+            "registry_hash": registry.hash,
+            "registry_state_version": REGISTRY_STATE_VERSION,
+            "project_profile_hash": registry.project_profile_hashes.get(project),
+            "active_project_tags_hash": registry.active_project_tags_hash,
+        },
+        "inputs": {
+            "validation_report": ensure_relative(validation_path) if validation_path else None,
+            "extraction_output": ensure_relative(extraction_result.path),
+            "queue_counts": queue_payload.get("counts", {}),
+            "queue_review_item_count": len(review_items_from_queue(queue_payload)),
+            "queue_blocking_item_count": len(blocking_items_from_queue(queue_payload)),
+        },
+        "source_coverage": source_coverage_snapshot(generated_at),
+        "evidence_summary": {
+            "confirmed_count": len(compact_confirmed),
+            "uncertain_count": len(compact_uncertain),
+            "confirmed_by_source": count_records_by_key(ordered_confirmed, "source"),
+            "uncertain_by_source": count_records_by_key(ordered_uncertain, "source"),
+        },
+        "evidence": {
+            "confirmed_records": compact_confirmed,
+            "uncertain_records": compact_uncertain,
+        },
+        "synthesis": {
+            "summary": [],
+            "chronology": [],
+            "shipped_work": [],
+            "decisions": [],
+            "commitments": [],
+            "blockers": [],
+            "risks": [],
+            "open_questions": [],
+            "source_conflicts": [],
+            "missing_evidence_caveats": [],
+            "review_signals": [
+                {
+                    "record_id": record["record_id"],
+                    "reason": record["note"],
+                    "source": record["source"],
+                    "occurred_at": record["occurred_at"],
+                    "source_file": record["source_file"],
+                    "block_start_line": record["block_start_line"],
+                }
+                for record in compact_uncertain
+            ],
+            "confidence": "unassessed",
+        },
+    }
+
+
+def evidence_source_ref(record: dict[str, Any]) -> str:
+    source_file = record.get("source_file")
+    line = record.get("block_start_line")
+    if source_file and line:
+        return f"{source_file}:{line}"
+    return str(source_file or "unknown source")
+
+
+def render_synthesis_markdown(payload: dict[str, Any]) -> str:
+    evidence = payload.get("evidence", {})
+    confirmed = evidence.get("confirmed_records", []) if isinstance(evidence, dict) else []
+    uncertain = evidence.get("uncertain_records", []) if isinstance(evidence, dict) else []
+    summary = payload.get("evidence_summary", {})
+    window = payload.get("window", {})
+    lines = [
+        f"# Project State Synthesis: {payload['project']}",
+        "",
+        f"Run: `{payload['run_id']}`",
+        f"Status: `{payload['synthesis_status']}`",
+        f"Window: `{window.get('start')}` to `{window.get('end')}`",
+        "",
+        "## Evidence Inventory",
+        "",
+        f"- Confirmed records: `{summary.get('confirmed_count', 0)}`",
+        f"- Uncertain review records: `{summary.get('uncertain_count', 0)}`",
+        f"- Confirmed by source: `{summary.get('confirmed_by_source', {})}`",
+        f"- Uncertain by source: `{summary.get('uncertain_by_source', {})}`",
+        "",
+        "## Summary",
+        "",
+        "_Prepared for Codex synthesis. Replace this section with source-backed project state._",
+        "",
+        "## Chronology",
+        "",
+        "_Prepared for Codex synthesis._",
+        "",
+        "## Shipped Work",
+        "",
+        "_Prepared for Codex synthesis._",
+        "",
+        "## Decisions And Commitments",
+        "",
+        "_Prepared for Codex synthesis._",
+        "",
+        "## Blockers Risks And Open Questions",
+        "",
+        "_Prepared for Codex synthesis._",
+        "",
+        "## Source Conflicts And Caveats",
+        "",
+        "_Prepared for Codex synthesis._",
+        "",
+        "## Confirmed Evidence",
+        "",
+    ]
+    if not confirmed:
+        lines.append("_No confirmed evidence records in the synthesis window._")
+    for record in confirmed:
+        lines.extend([
+            f"### {record['record_id']}",
+            "",
+            f"- Source: `{record.get('source')}`",
+            f"- Occurred at: `{record.get('occurred_at')}`",
+            f"- Note: {record.get('note')}",
+            f"- Evidence: `{evidence_source_ref(record)}`",
+            "",
+            "```text",
+            str(record.get("block_text_excerpt") or ""),
+            "```",
+            "",
+        ])
+
+    lines.extend(["## Uncertain Review Signals", ""])
+    if not uncertain:
+        lines.append("_No uncertain project records in the synthesis window._")
+    for record in uncertain:
+        lines.extend([
+            f"### {record['record_id']}",
+            "",
+            f"- Source: `{record.get('source')}`",
+            f"- Occurred at: `{record.get('occurred_at')}`",
+            f"- Why uncertain: {record.get('note')}",
+            f"- Evidence: `{evidence_source_ref(record)}`",
+            "",
+            "```text",
+            str(record.get("block_text_excerpt") or ""),
+            "```",
+            "",
+        ])
+
+    lines.extend(["## Source Coverage Snapshot", ""])
+    for source in payload.get("source_coverage", []):
+        lines.append(
+            f"- {source.get('source')}: {source.get('reader_status')} "
+            f"(last fetch: {source.get('last_successful_fetch_at') or 'unknown'})"
+        )
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def render_project_report(
     project: str,
     run_id: str,
@@ -3258,6 +3570,153 @@ def run_state_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def synthesize_project_state(args: argparse.Namespace) -> int:
+    project = args.project
+    started_at = utc_now()
+    now = started_at
+    run_id = make_run_id(started_at)
+    manifest: dict[str, Any] = {
+        "run_id": run_id,
+        "timestamp": iso(started_at),
+        "started_at": iso(started_at),
+        "trigger_source": "manual_cli",
+        "command": f"synthesize-project-state {project}",
+        "project": project,
+        "status": "started",
+        "mutations_performed": False,
+        "external_delivery": False,
+        "warnings": [],
+        "errors": [],
+    }
+
+    try:
+        registry = load_project_registry()
+        if project not in registry.project_tags:
+            raise RuntimeError(f"Unknown project tag: {project}")
+
+        report_start, report_end, report_cursor = compute_report_window(project, now)
+        queue_payload = build_queue_payload()
+        blocking_items = blocking_items_from_queue(queue_payload)
+        review_items = review_items_from_queue(queue_payload)
+
+        manifest["registry_hash"] = registry.hash
+        manifest["source_families_hash"] = source_families_hash()
+        manifest["windows"] = {
+            "synthesis_start": iso(report_start),
+            "synthesis_end": iso(report_end),
+        }
+        manifest["queue"] = {
+            "total": queue_payload["total"],
+            "counts": queue_payload["counts"],
+            "blocking_items": blocking_items,
+            "review_items": review_items,
+        }
+        manifest["report_cursor"] = {
+            "path": ensure_relative(cursor_path(project, "report")),
+            "advanced": False,
+            "reason": "synthesis preparation does not advance report cursor",
+            "previous_cursor": report_cursor,
+        }
+
+        if blocking_items:
+            manifest["status"] = "tagging_required"
+            manifest["errors"].append("Tagging worklist has stale, missing, prepared, or failed items.")
+            finalize_manifest(manifest, started_at)
+            manifest_result = write_run_manifest(run_id, manifest)
+            print(f"Project state synthesis requires tagging: {project}", file=sys.stderr)
+            print(f"- blocking items: {len(blocking_items)}", file=sys.stderr)
+            print(f"- review-only items: {len(review_items)}", file=sys.stderr)
+            print(f"- manifest: {ensure_relative(manifest_result.path)}", file=sys.stderr)
+            return 2
+
+        if review_items:
+            manifest["warnings"].append("Uncertain tagged records are included only as review signals.")
+
+        validation_report, validation_path = validate_tagged_logs(write_report=True)
+        manifest["validation"] = {
+            "status": validation_report["status"],
+            "report": ensure_relative(validation_path) if validation_path else None,
+            "file_count": validation_report["file_count"],
+            "error_count": validation_report["error_count"],
+            "warning_count": validation_report["warning_count"],
+            "uncertain_annotation_count": validation_report["uncertain_annotation_count"],
+        }
+        if validation_report["status"] != "ok":
+            manifest["status"] = "validation_failed"
+            manifest["errors"].append("Tagged-log validation failed.")
+            finalize_manifest(manifest, started_at)
+            manifest_result = write_run_manifest(run_id, manifest)
+            print(f"Project state synthesis validation failed: {project}", file=sys.stderr)
+            print(f"- manifest: {ensure_relative(manifest_result.path)}", file=sys.stderr)
+            return 1
+
+        records = extract_all_records()
+        extraction_result = write_extracted_records(records)
+        confirmed_records, uncertain_records = filter_project_records(
+            records,
+            project,
+            report_start,
+            report_end,
+        )
+        manifest["extraction"] = {
+            "output": ensure_relative(extraction_result.path),
+            "record_count": len(records),
+            "project_confirmed_count": len(confirmed_records),
+            "project_uncertain_count": len(uncertain_records),
+        }
+
+        payload = build_synthesis_payload(
+            project,
+            run_id,
+            started_at,
+            report_start,
+            report_end,
+            registry,
+            validation_report,
+            validation_path,
+            extraction_result,
+            queue_payload,
+            confirmed_records,
+            uncertain_records,
+        )
+        json_result = write_json_if_changed(synthesis_json_path(project, run_id), payload)
+        markdown_result = write_text_if_changed(
+            synthesis_markdown_path(project, run_id),
+            render_synthesis_markdown(payload),
+        )
+        manifest["synthesis"] = {
+            "status": payload["synthesis_status"],
+            "json_path": ensure_relative(json_result.path),
+            "json_write_status": json_result.status,
+            "markdown_path": ensure_relative(markdown_result.path),
+            "markdown_write_status": markdown_result.status,
+            "confirmed_count": len(confirmed_records),
+            "uncertain_count": len(uncertain_records),
+        }
+        manifest["status"] = "prepared"
+
+    except Exception as exc:  # noqa: BLE001 - CLI should manifest failures.
+        manifest["status"] = "failed"
+        manifest["errors"].append(str(exc))
+        finalize_manifest(manifest, started_at)
+        manifest_result = write_run_manifest(run_id, manifest)
+        print(f"Project state synthesis failed: {project}", file=sys.stderr)
+        print(str(exc), file=sys.stderr)
+        print(f"- manifest: {ensure_relative(manifest_result.path)}", file=sys.stderr)
+        return 1
+
+    finalize_manifest(manifest, started_at)
+    manifest_result = write_run_manifest(run_id, manifest)
+    print(f"Project state synthesis prepared: {project}")
+    print(f"- status: {manifest['status']}")
+    print(f"- confirmed records: {manifest['synthesis']['confirmed_count']}")
+    print(f"- uncertain review records: {manifest['synthesis']['uncertain_count']}")
+    print(f"- synthesis json: {manifest['synthesis']['json_path']}")
+    print(f"- synthesis markdown: {manifest['synthesis']['markdown_path']}")
+    print(f"- manifest: {ensure_relative(manifest_result.path)}")
+    return 0
+
+
 def run_project_deprecated(args: argparse.Namespace) -> int:
     print("`run-project` has been retired as a fetch entrypoint.", file=sys.stderr)
     print("Use `run-data-fetch` once for shared datasource ingestion.", file=sys.stderr)
@@ -3431,6 +3890,13 @@ def build_parser() -> argparse.ArgumentParser:
     run_state_report_parser = subparsers.add_parser("run-state-report", help="Run project-specific report pipeline")
     run_state_report_parser.add_argument("project", help="Canonical project tag")
     run_state_report_parser.set_defaults(func=run_state_report)
+
+    synthesize_project_state_parser = subparsers.add_parser(
+        "synthesize-project-state",
+        help="Prepare project-state synthesis evidence and draft artifacts",
+    )
+    synthesize_project_state_parser.add_argument("project", help="Canonical project tag")
+    synthesize_project_state_parser.set_defaults(func=synthesize_project_state)
 
     run_project_parser = subparsers.add_parser("run-project", help="Deprecated: use run-data-fetch and run-state-report")
     run_project_parser.add_argument("project", help="Canonical project tag")

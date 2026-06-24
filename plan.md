@@ -1065,6 +1065,17 @@ data/projects/<Project-tag>/synthesis/<run-id>_synthesis.json
 data/projects/<Project-tag>/synthesis/<run-id>_synthesis.md
 ```
 
+Current command:
+
+```bash
+python3 scripts/project_intel.py synthesize-project-state <Project-tag>
+```
+
+The deterministic command prepares private JSON/Markdown synthesis artifacts
+from validated extracted evidence. The `project-state-synthesizer` skill fills
+the reasoning fields. The command does not advance the report cursor and does
+not treat uncertain records as authoritative evidence.
+
 Acceptance criteria:
 
 - synthesis cites evidence records

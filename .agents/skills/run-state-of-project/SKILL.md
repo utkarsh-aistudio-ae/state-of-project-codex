@@ -46,14 +46,27 @@ orchestrations/state-of-project-nightly.md
 5. Run:
 
    ```bash
+   python3 scripts/project_intel.py synthesize-project-state <Project-tag>
+   ```
+
+6. If the synthesis command exits with `tagging_required`, run
+   `project-tagger` on the blocking stale/missing/prepared/failed logs, then
+   rerun synthesis. If only `needs_review` remains, synthesis may proceed but
+   uncertain records must stay review-only.
+7. Run `project-state-synthesizer` on the generated private synthesis artifacts
+   under `data/projects/<Project-tag>/synthesis/...`.
+8. Until `state-report-writer` exists, the current placeholder report can be
+   generated with:
+
+   ```bash
    python3 scripts/project_intel.py run-state-report <Project-tag>
    ```
 
-6. If the report command exits with `tagging_required`, run `project-tagger` on
+9. If the report command exits with `tagging_required`, run `project-tagger` on
    the blocking untouched logs, then rerun `run-state-report`.
-7. If validation fails, inspect the validation report and repair tagged logs
+10. If validation fails, inspect the validation report and repair tagged logs
    without editing untouched logs.
-8. If the run succeeds, review the generated private report under
+11. If the run succeeds, review the generated private report under
    `data/reports/<Project-tag>/...` and the manifest under `logs/runs/...`.
 
 ## Current Behavior
@@ -86,8 +99,9 @@ Current skipped source gaps:
   active project profile.
 
 The `queue` command is a derived filesystem worklist, not a durable queue. The
-report cursor advances only after the derived worklist is clear, validation
-passes, extraction succeeds, and the private report is written.
+synthesis command writes private prepared synthesis artifacts and does not
+advance the report cursor. The report cursor advances only after the report
+stage succeeds.
 
 Tagging uses cursor-selected candidate sets plus source content hashes and
 registry state as its per-artifact proof of currency. It should not run once per

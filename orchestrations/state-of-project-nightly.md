@@ -49,13 +49,13 @@ Current skills:
 
 - `run-state-of-project`: conductor for the current workflow
 - `project-tagger`: Codex judgment for project annotations
+- `project-state-synthesizer`: Codex judgment for source-backed project state
 - `capture-project-intel-teachings`: durable workflow learning
 
 Future concepts:
 
 - `project-resource-discoverer`: wide-net discovery for repos, deployments, and
   other project-linked source entities
-- `project-state-synthesizer`: reasoning and chronology
 - `state-report-writer`: report presentation
 - PDF renderer: derivative artifact generation
 
@@ -89,11 +89,15 @@ Future concepts:
 8. Validate tagged logs.
 9. Extract tagged evidence records.
 10. Filter evidence to the project and report window.
-11. Current skeleton: write private placeholder report.
-12. Future: run `project-state-synthesizer`, then `state-report-writer`, then
-    PDF rendering.
-13. Write manifest.
-14. Advance resource-discovery cursors after successful discovery; advance fetch
+11. Run `python3 scripts/project_intel.py synthesize-project-state
+    <Project-tag>` to prepare the private synthesis evidence pack and draft.
+12. Run `project-state-synthesizer` to fill the synthesis reasoning from
+    confirmed evidence and route uncertain evidence to review sections.
+13. Current skeleton: `run-state-report` can still write a private placeholder
+    report directly from extracted records while report writing is immature.
+14. Future: run `state-report-writer`, then PDF rendering.
+15. Write manifest.
+16. Advance resource-discovery cursors after successful discovery; advance fetch
     cursors after successful source fetches; advance tagging
     cursors after successful tagging for their selected candidate set; advance
     report cursor only when the report stage succeeds.
