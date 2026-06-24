@@ -21,6 +21,7 @@ from email.utils import parsedate_to_datetime
 import hashlib
 import html
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -640,6 +641,11 @@ def report_html_path(project: str, run_id: str, ended_at: datetime) -> Path:
 def report_pdf_path(project: str, run_id: str, ended_at: datetime) -> Path:
     day = ended_at.strftime("%Y-%m-%d")
     return ROOT / "data" / "reports" / project / day / f"{run_id}_state-of-project.pdf"
+
+
+def report_preview_path(project: str, run_id: str, ended_at: datetime) -> Path:
+    day = ended_at.strftime("%Y-%m-%d")
+    return ROOT / "data" / "reports" / project / day / f"{run_id}_state-of-project.preview.png"
 
 
 def synthesis_dir(project: str) -> Path:
@@ -4053,7 +4059,104 @@ blockquote { border-left: 3px solid #b8c0cc; color: #4b5563; margin-left: 0; pad
     return write_text_if_changed(html_path_value, document)
 
 
-def render_report_pdf(html_path_value: Path, pdf_path_value: Path) -> WriteResult:
+def pdf_first_page_text(pdf_path_value: Path) -> str:
+    try:
+        import pypdfium2 as pdfium
+    except ImportError as exc:
+        raise RuntimeError(
+            "Could not validate PDF text: pypdfium2 is not installed. "
+            "Run `python3 -m pip install -r requirements.txt`."
+        ) from exc
+
+    pdf = pdfium.PdfDocument(str(pdf_path_value))
+    try:
+        if len(pdf) < 1:
+            raise RuntimeError(f"PDF has no pages: {pdf_path_value}")
+        page = pdf[0]
+        try:
+            text_page = page.get_textpage()
+            try:
+                return text_page.get_text_range()
+            finally:
+                close_method = getattr(text_page, "close", None)
+                if close_method:
+                    close_method()
+        finally:
+            close_method = getattr(page, "close", None)
+            if close_method:
+                close_method()
+    finally:
+        close_method = getattr(pdf, "close", None)
+        if close_method:
+            close_method()
+
+
+def validate_report_pdf_text(pdf_path_value: Path, expected_text: str) -> None:
+    first_page_text = pdf_first_page_text(pdf_path_value)
+    blocked_markers = [
+        "Access to the file was denied",
+        "ERR_ACCESS_DENIED",
+        "ERR_FILE_NOT_FOUND",
+        "This site can't be reached",
+    ]
+    for marker in blocked_markers:
+        if marker.lower() in first_page_text.lower():
+            raise RuntimeError(f"PDF contains browser error content: {marker}")
+    if expected_text.lower() not in first_page_text.lower():
+        raise RuntimeError(f"PDF first page does not contain expected text: {expected_text}")
+
+
+def render_report_pdf_preview(pdf_path_value: Path, preview_path_value: Path) -> WriteResult:
+    try:
+        import pypdfium2 as pdfium
+        from PIL import Image
+    except ImportError as exc:
+        raise RuntimeError(
+            "Could not render PDF preview: pypdfium2 and Pillow are required. "
+            "Run `python3 -m pip install -r requirements.txt`."
+        ) from exc
+
+    pdf = pdfium.PdfDocument(str(pdf_path_value))
+    try:
+        if len(pdf) < 1:
+            raise RuntimeError(f"PDF has no pages: {pdf_path_value}")
+        page = pdf[0]
+        try:
+            bitmap = page.render(scale=2)
+            try:
+                image = bitmap.to_pil()
+                if not isinstance(image, Image.Image):
+                    raise RuntimeError(f"PDF preview renderer did not return an image: {pdf_path_value}")
+                grayscale = image.convert("L")
+                extrema = grayscale.getextrema()
+                if extrema[0] == extrema[1]:
+                    raise RuntimeError(f"PDF preview appears blank: {pdf_path_value}")
+                preview_path_value.parent.mkdir(parents=True, exist_ok=True)
+                image.save(preview_path_value)
+            finally:
+                close_method = getattr(bitmap, "close", None)
+                if close_method:
+                    close_method()
+        finally:
+            close_method = getattr(page, "close", None)
+            if close_method:
+                close_method()
+    finally:
+        close_method = getattr(pdf, "close", None)
+        if close_method:
+            close_method()
+
+    if not preview_path_value.exists() or preview_path_value.stat().st_size <= 0:
+        raise RuntimeError(f"PDF preview output could not be created: {ensure_relative(preview_path_value)}")
+    return WriteResult(preview_path_value, "written")
+
+
+def render_report_pdf(
+    html_path_value: Path,
+    pdf_path_value: Path,
+    preview_path_value: Path,
+    expected_text: str,
+) -> tuple[WriteResult, WriteResult]:
     chromium = (
         shutil.which("chromium-browser")
         or shutil.which("chromium")
@@ -4062,31 +4165,49 @@ def render_report_pdf(html_path_value: Path, pdf_path_value: Path) -> WriteResul
     if not chromium:
         raise RuntimeError("Could not render PDF: Chromium is not available.")
     pdf_path_value.parent.mkdir(parents=True, exist_ok=True)
-    temp_pdf = Path.home() / f"project-intel-{make_run_id()}-{pdf_path_value.name}"
-    if temp_pdf.exists():
-        temp_pdf.unlink()
-    command = [
-        chromium,
-        "--headless",
-        "--disable-gpu",
-        "--disable-dev-shm-usage",
-        "--no-sandbox",
-        "--print-to-pdf-no-header",
-        f"--print-to-pdf={temp_pdf}",
-        html_path_value.resolve().as_uri(),
-    ]
+    preview_path_value.parent.mkdir(parents=True, exist_ok=True)
+
+    render_token = f"{make_run_id()}-{os.getpid()}"
+    temp_html = Path.home() / f"project-intel-render-{render_token}.html"
+    temp_pdf = Path.home() / f"project-intel-render-{render_token}.pdf"
+
     try:
-        subprocess.run(command, cwd=ROOT, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    except subprocess.CalledProcessError as exc:
-        detail = (exc.stderr or exc.stdout or "").strip()
-        raise RuntimeError(f"Could not render PDF with Chromium: {detail[:1000]}") from exc
-    if not temp_pdf.exists() or temp_pdf.stat().st_size <= 0:
-        raise RuntimeError(f"PDF renderer did not create output: {temp_pdf}")
-    pdf_path_value.write_bytes(temp_pdf.read_bytes())
-    temp_pdf.unlink()
+        temp_html.write_text(html_path_value.read_text(encoding="utf-8"), encoding="utf-8")
+        command = [
+            chromium,
+            "--headless",
+            "--disable-gpu",
+            "--disable-dev-shm-usage",
+            "--no-sandbox",
+            "--no-pdf-header-footer",
+            "--print-to-pdf-no-header",
+            f"--print-to-pdf={temp_pdf}",
+            temp_html.resolve().as_uri(),
+        ]
+        try:
+            subprocess.run(command, cwd=ROOT, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        except subprocess.CalledProcessError as exc:
+            detail = (exc.stderr or exc.stdout or "").strip()
+            raise RuntimeError(f"Could not render PDF with Chromium: {detail[:1000]}") from exc
+
+        if not temp_pdf.exists() or temp_pdf.stat().st_size <= 0:
+            raise RuntimeError(f"PDF renderer did not create output: {temp_pdf}")
+
+        validate_report_pdf_text(temp_pdf, expected_text)
+        pdf_path_value.write_bytes(temp_pdf.read_bytes())
+        preview_result = render_report_pdf_preview(temp_pdf, preview_path_value)
+    finally:
+        for temp_path in (temp_html, temp_pdf):
+            try:
+                temp_path.unlink()
+            except FileNotFoundError:
+                pass
+
     if not pdf_path_value.exists() or pdf_path_value.stat().st_size <= 0:
         raise RuntimeError(f"PDF output could not be copied into report folder: {ensure_relative(pdf_path_value)}")
-    return WriteResult(pdf_path_value, "written")
+    if not preview_path_value.exists() or preview_path_value.stat().st_size <= 0:
+        raise RuntimeError(f"PDF preview output could not be copied into report folder: {ensure_relative(preview_path_value)}")
+    return WriteResult(pdf_path_value, "written"), preview_result
 
 
 def write_state_report(args: argparse.Namespace) -> int:
@@ -4125,18 +4246,25 @@ def write_state_report(args: argparse.Namespace) -> int:
         markdown_output = report_path(project, report_run_id, report_end)
         html_output = report_html_path(project, report_run_id, report_end)
         pdf_output = report_pdf_path(project, report_run_id, report_end)
+        preview_output = report_preview_path(project, report_run_id, report_end)
 
         json_result = write_json_if_changed(json_output, report_payload)
         markdown_result = write_text_if_changed(markdown_output, render_state_report_markdown(report_payload))
         html_result: WriteResult | None = None
         pdf_result: WriteResult | None = None
+        preview_result: WriteResult | None = None
         if not args.no_pdf:
             html_result = render_report_html(
                 markdown_output,
                 html_output,
                 f"State of Project: {report_payload.get('project_display_name')}",
             )
-            pdf_result = render_report_pdf(html_output, pdf_output)
+            pdf_result, preview_result = render_report_pdf(
+                html_output,
+                pdf_output,
+                preview_output,
+                "State of Project",
+            )
 
         manifest["source_synthesis"] = ensure_relative(synthesis_path_value)
         manifest["report"] = {
@@ -4148,6 +4276,8 @@ def write_state_report(args: argparse.Namespace) -> int:
             "html_status": html_result.status if html_result else "skipped",
             "pdf_path": ensure_relative(pdf_result.path) if pdf_result else None,
             "pdf_status": pdf_result.status if pdf_result else "skipped",
+            "pdf_preview_path": ensure_relative(preview_result.path) if preview_result else None,
+            "pdf_preview_status": preview_result.status if preview_result else "skipped",
             "confidence": nested_dict(report_payload, "source_synthesis").get("confidence"),
         }
 
@@ -4195,6 +4325,8 @@ def write_state_report(args: argparse.Namespace) -> int:
     print(f"- report markdown: {manifest['report']['markdown_path']}")
     if manifest["report"].get("pdf_path"):
         print(f"- report pdf: {manifest['report']['pdf_path']}")
+    if manifest["report"].get("pdf_preview_path"):
+        print(f"- pdf preview: {manifest['report']['pdf_preview_path']}")
     print(f"- manifest: {ensure_relative(manifest_result.path)}")
     return 0
 

@@ -28,6 +28,8 @@ data/reports/
 *.tgz
 __pycache__/
 .pytest_cache/
+.venv/
+.python-deps/
 
 # Local OS/editor noise
 .DS_Store

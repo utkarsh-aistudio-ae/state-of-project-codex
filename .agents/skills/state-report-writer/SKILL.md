@@ -36,6 +36,7 @@ rendering.
    data/reports/<Project-tag>/<YYYY-MM-DD>/<run-id>_state-of-project.md
    data/reports/<Project-tag>/<YYYY-MM-DD>/<run-id>_state-of-project.html
    data/reports/<Project-tag>/<YYYY-MM-DD>/<run-id>_state-of-project.pdf
+   data/reports/<Project-tag>/<YYYY-MM-DD>/<run-id>_state-of-project.preview.png
    ```
 
 4. Treat JSON and Markdown as canonical. Treat HTML and PDF as derivatives.
@@ -81,10 +82,18 @@ The canonical Markdown should include:
 After writing the report:
 
 ```bash
-python3 -m py_compile scripts/project_intel.py
-python3 scripts/project_intel.py validate-synthesis data/projects/<Project-tag>/synthesis/<run-id>_synthesis.json
+python3 -m pip install --target .python-deps -r requirements.txt
+PYTHONPATH=.python-deps python3 -m py_compile scripts/project_intel.py
+PYTHONPATH=.python-deps python3 scripts/project_intel.py validate-synthesis data/projects/<Project-tag>/synthesis/<run-id>_synthesis.json
 test -s data/reports/<Project-tag>/<YYYY-MM-DD>/<run-id>_state-of-project.pdf
+test -s data/reports/<Project-tag>/<YYYY-MM-DD>/<run-id>_state-of-project.preview.png
 ```
+
+Open or inspect the preview PNG before calling the PDF complete. The preview
+must show the actual report content, not a browser error page, blank page,
+access-denied page, or renderer diagnostic output.
+The preview must be rendered from the actual PDF page, not from the source HTML
+or a browser PDF-viewer screenshot.
 
 If the PDF renderer fails, keep the canonical JSON/Markdown and surface the
 rendering failure. Do not treat a missing PDF as a completed report when the

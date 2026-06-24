@@ -720,6 +720,8 @@ Useful validation checks:
 - run manifests are valid JSON
 - generated artifacts exist
 - PDF rendering works
+- rendered derivative previews come from the derivative itself, not only from
+  source HTML or a viewer shell
 - no raw secrets were persisted
 - no raw customer payloads were accidentally included
 - cursors advanced only when allowed

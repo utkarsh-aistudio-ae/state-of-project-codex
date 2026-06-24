@@ -32,6 +32,24 @@ edit immediately. Batch coherent changes after they pass local checks.
 Never push auth material, private transcripts, email exports, Drive downloads,
 runtime manifests with private content, or generated derived records.
 
+## Local Python Dependencies
+
+Install the reproducible Python dependencies before running report rendering or
+PDF validation:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+```
+
+If the machine does not have `python3-venv`, use a local ignored dependency
+target:
+
+```bash
+python3 -m pip install --target .python-deps -r requirements.txt
+PYTHONPATH=.python-deps python3 scripts/project_intel.py <command>
+```
+
 ## Architecture Decision Rule
 
 Project Intel is a long-term, multi-datasource internal intelligence system for
@@ -115,6 +133,9 @@ validates/extracts tagged evidence, and writes private synthesis artifacts.
 `data/reports/`, renders the PDF derivative, records a private manifest under
 `logs/runs/`, and advances the project report cursor after the report stage
 succeeds.
+The PDF path includes deterministic text checks and a first-page preview rendered
+from the actual PDF so browser error pages, blank renders, and renderer
+diagnostics are not accepted as completed reports.
 
 Fetching and tagging are source-artifact/source-entity stages. Some artifacts
 are broad shared conversations; others are project-scoped entities such as repos

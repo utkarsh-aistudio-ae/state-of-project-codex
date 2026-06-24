@@ -1155,6 +1155,8 @@ Acceptance criteria:
 - report lists skipped/unavailable sources
 - no secrets are included
 - PDF is treated as a derivative of canonical markdown/JSON
+- PDF rendering validates actual PDF text and produces a first-page PNG preview
+  rendered from the PDF, not from source HTML or a browser viewer screenshot
 
 ## Phase 13: Issue Auditor And Writer
 
