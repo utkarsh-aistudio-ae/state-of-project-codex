@@ -16,6 +16,8 @@ filesystem contract can describe them. Source-family metadata records:
 - whether a source participates in default shared data-fetch runs
 - current reader implementation status
 - cursor scope and lookback policy
+- stable source entity key, when the source is naturally split into repos,
+  projects, folders, threads, environments, or similar objects
 - what the source is canonical for
 - what the source is not canonical for
 - privacy and redaction rules
@@ -31,6 +33,23 @@ Use these labels:
 - `presentation`: UI over another source
 - `scratch`: temporary analysis output
 - `mixed`: contains more than one source class depending on section or object
+
+## Cursor Scope
+
+Use these labels:
+
+- `shared_source`: broad datasource stream where one artifact can contain
+  evidence for many projects, such as Gmail threads, Fireflies transcripts, or
+  Slack threads.
+- `source_entity`: named datasource entity that often comes from a project
+  profile, such as a GitHub repo, Railway project, Vercel project, Notion
+  workspace/page tree, or deployment environment.
+- `mixed_source`: source family may contain both shared artifacts and
+  project-scoped entities, such as Drive folders and files.
+
+Project-scoped source entities are valid. They should be fetched and tagged for
+the relevant source entity, but not repeatedly for every report run. The stable
+entity key, such as repo name or provider project id, is the dedupe boundary.
 
 ## Reader Status
 
@@ -71,13 +90,13 @@ reports as source coverage gaps.
 - Source family membership does not imply project ownership.
 - Fetch context such as `fetch_context.project_candidates` is not a project
   annotation; it only records why the reader pulled the source log.
-- Shared datasources must be fetched once per source window, not once per
+- Broad shared datasources must be fetched once per source window, not once per
   project report. Tagging and extraction decide which blocks matter to which
   project.
 - Named/project-shaped datasources such as GitHub repos, Railway projects,
-  Vercel projects, or Notion spaces should still reuse stable source artifact
-  identities and cursor `seen_keys` so the same artifact is not fetched or
-  tagged repeatedly for multiple reports.
+  Vercel projects, or Notion spaces may be fetched from project profiles, but
+  should still reuse stable source entity identities and cursor `seen_keys` so
+  the same entity is not fetched or tagged repeatedly for multiple reports.
 - Source status must be recorded in run manifests.
 - A skipped source is not the same as a source with no data.
 - Presentation surfaces can provide pointers, but canonical backing sources

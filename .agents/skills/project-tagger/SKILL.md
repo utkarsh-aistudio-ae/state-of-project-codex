@@ -11,11 +11,13 @@ queue status, paths, hashes, validation, extraction, and manifests. Keep this
 skill generic and registry-driven; project-specific signals belong in the
 project registry or confirmed project profiles.
 
-Tagging is shared source work, not project-report work. A Gmail thread,
-Fireflies transcript, GitHub repo activity log, deployment record, or future
-Notion/Slack/Drive artifact should be tagged once per source artifact state, not
-once per project report. Project-specific reports consume extracted tagged
-evidence after tagging is current.
+Tagging is source-artifact/source-entity work, not report-rendering work. A
+Gmail thread or Fireflies transcript may be shared across projects; a GitHub
+repo activity log, Railway/Vercel project, Notion space/page tree, deployment
+record, or client Drive folder may be naturally project-scoped. In both cases,
+tag once per source artifact or source entity state, not once per report run.
+Project-specific reports consume extracted tagged evidence after tagging is
+current.
 
 ## Workflow
 
@@ -61,11 +63,12 @@ The effective tagging cursor is the tagged file frontmatter:
 - `annotation_count`
 - `uncertain_annotation_count`
 
-Do not create a separate tagged copy per project. Do not retag a source log just
-because a project report is being generated. If `queue` says the source log is
-`current`, leave it alone. If a shared source artifact has candidate projects in
-`fetch_context.project_candidates`, treat that as routing context only; it is not
-a project annotation and it does not remove the need for block-level judgment.
+Do not create duplicate tagged copies for repeated project reports. Do not
+retag a source log just because a project report is being generated. If `queue`
+says the source log is `current`, leave it alone. If a source artifact has
+candidate projects in `fetch_context.project_candidates`, treat that as routing
+context only; it is not a project annotation and it does not remove the need for
+block-level judgment.
 
 ## Tagged File Metadata
 

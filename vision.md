@@ -89,9 +89,11 @@ Durable principles:
 
 - Treat source capture, tagging, extraction, reporting, task creation, and
   execution as separate lifecycle stages.
-- Treat source capture and tagging as shared source-artifact work, not
-  per-project report work. Stable source identities, cursors, source hashes, and
-  registry hashes should prevent duplicate fetching or duplicate tagging.
+- Treat source capture and tagging as source-artifact/source-entity work, not
+  report-rendering work. Some units are broad shared conversations; others are
+  project-scoped entities such as repos, deployment projects, Notion spaces, or
+  client folders. Stable source identities, cursors, source hashes, and registry
+  hashes should prevent duplicate fetching or duplicate tagging.
 - Treat user corrections as product inputs. Durable process corrections should
   be normalized, routed to the right owner, patched minimally, and validated
   instead of being left only in chat.

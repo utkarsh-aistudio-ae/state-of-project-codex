@@ -29,8 +29,8 @@ orchestrations/state-of-project-nightly.md
 
 2. If the derived worklist has non-current items, run the `project-tagger` skill
    on the blocking untouched logs listed by `queue` or the manifest. Tagging is
-   shared source work: process only items with `work_required: true` and skip
-   `current` items.
+   source-artifact/source-entity work: process only items with
+   `work_required: true` and skip `current` items.
 3. Confirm the project tag exists in `data/registry/project-tags.yaml`.
 4. Run:
 
@@ -58,8 +58,9 @@ writes the project-specific private report.
 Current implemented batch readers:
 
 - GitHub: uses active project repo profiles from
-  `data/registry/project-tags.yaml` as discovery signals and reader limits from
-  `data/registry/source-families.yaml`; repos are deduped across projects.
+  `data/registry/project-tags.yaml` as project-scoped source entities and reader
+  limits from `data/registry/source-families.yaml`; repos are deduped across
+  reports.
 - Gmail: uses project aliases, strong signals, and reader settings from the
   registries as discovery signals, dedupes matching thread IDs, and fetches
   full sanitized threads once per shared source window.
@@ -76,9 +77,10 @@ passes, extraction succeeds, and the private report is written.
 
 Tagging uses source content hashes and registry hashes as its per-artifact
 cursor. It should not run once per project report, and it should not duplicate
-work for shared sources. A source artifact is retagged only when its source hash
-changes, the project registry changes, the tagged copy is missing/prepared, or
-the tagger explicitly marked the file failed or in need of review.
+work for source artifacts or project-scoped source entities that are already
+current. A source artifact is retagged only when its source hash changes, the
+project registry changes, the tagged copy is missing/prepared, or the tagger
+explicitly marked the file failed or in need of review.
 
 ## Safety
 

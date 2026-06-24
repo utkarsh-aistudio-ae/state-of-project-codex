@@ -89,10 +89,13 @@ contracts that can scale to many datasources, many projects, enterprise client
 contexts, and future human-approved external writes. Do not introduce shortcuts
 that make source state, tagging state, or evidence provenance ambiguous.
 
-Fetching and tagging are shared source-artifact stages. They should not run once
-per project report. Readers use source cursors and `seen_keys` to avoid
-duplicating already-seen artifacts; tagging uses source hashes, registry hashes,
-and tagged metadata to process only source logs where work is actually required.
+Fetching and tagging are source-artifact/source-entity stages. Some units are
+broad shared conversations; some are naturally project-scoped entities such as
+repos, deployment projects, Notion spaces, or client folders. They should not run
+again merely because another project report is generated. Readers use source
+cursors and `seen_keys` to avoid duplicating already-seen artifacts/entities;
+tagging uses source hashes, registry hashes, and tagged metadata to process only
+source logs where work is actually required.
 
 First target artifact:
 
@@ -416,11 +419,11 @@ cursor windows, reads default data-fetch sources from
 unimplemented batch readers, writes untouched logs, writes a private run
 manifest, and advances shared source cursors after successful source capture.
 
-`run-state-report <Project-tag>` is project-specific. It does not fetch shared
+`run-state-report <Project-tag>` is project-specific. It does not fetch
 datasources and does not retag current source logs. It requires the derived
-shared tagging worklist to be clear, validates/extracts evidence, writes a
-private state-of-project report, writes a private run manifest, and advances
-only the project report cursor when the report stage succeeds.
+source-artifact tagging worklist to be clear, validates/extracts evidence,
+writes a private state-of-project report, writes a private run manifest, and
+advances only the project report cursor when the report stage succeeds.
 
 Skeleton responsibilities:
 

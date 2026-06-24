@@ -17,8 +17,7 @@ python3 scripts/project_intel.py run-state-report <Project-tag>
 
 ## Cursors
 
-Shared source cursors and per-project report cursors live under private runtime
-state:
+Source cursors and per-project report cursors live under private runtime state:
 
 ```text
 state/cursors/data-fetch/<source>.json
@@ -32,12 +31,16 @@ Source cursors and report cursors are separate.
 - Source cursors may advance even when the later tagging worklist blocks report
   generation; the source data has been captured, while tagging remains a
   separate lifecycle stage.
-- Shared datasources such as Gmail, Fireflies, Drive, and future chat readers
+- Broad shared datasources such as Gmail, Fireflies, and future chat readers
   must not be fetched once per project during reporting. One conversation can
   contain evidence for many projects.
+- Some source entities are naturally project-scoped, such as GitHub repos,
+  Railway projects, Vercel projects, Notion spaces/page trees, deployment
+  environments, or client-specific Drive folders. Those may be discovered from
+  project profiles and fetched per source entity.
 - Source cursors maintain `seen_keys` so readers can reuse the same untouched
-  source-log path for an already-seen artifact instead of creating duplicate
-  files and duplicate tagging work.
+  source-log path for an already-seen artifact or source entity instead of
+  creating duplicate files and duplicate tagging work.
 - The report cursor advances only after the tagging worklist is clear,
   validation passes, extraction succeeds, and report generation succeeds.
 - Source fetches should use a lookback overlap, such as 48 hours, to catch late
@@ -108,9 +111,10 @@ from:
 This keeps queue state reproducible after restart. A persistent queue, cache,
 index, database, vector store, or service is a future architecture decision.
 
-The tagging worklist is shared across projects. Tagging must process only items
-where `work_required: true`; `current` items are skipped. The effective tagging
-cursor is the tagged file metadata:
+The tagging worklist is source-artifact scoped. Some artifacts are broad shared
+conversations; others are project-scoped source entities. In both cases, tagging
+must process only items where `work_required: true`; `current` items are
+skipped. The effective tagging cursor is the tagged file metadata:
 
 - `source_content_hash`
 - `registry_hash`
@@ -118,10 +122,11 @@ cursor is the tagged file metadata:
 - `annotation_count`
 - `uncertain_annotation_count`
 
-This means a source artifact is retagged only when the source content changed,
-the project registry changed, a tagged copy is missing/prepared, or the tagger
-marked the file failed or in need of review. Project reports must not create
-separate per-project tagging passes.
+This means a source artifact or project-scoped source entity is retagged only
+when the source content changed, the project registry changed, a tagged copy is
+missing/prepared, or the tagger marked the file failed or in need of review.
+Project reports must not create separate duplicate tagging passes for source
+artifacts that are already current.
 
 Prepared tagged files use `tag_status: "prepared"` and remain in the derived
 worklist as `needs_tagging` until Codex adds canonical annotations and reruns the

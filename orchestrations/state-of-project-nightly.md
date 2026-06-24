@@ -8,8 +8,8 @@ primary workflow family and its skills/tools are local to this workflow.
 
 ## Purpose
 
-Capture shared source data once per source window, then produce a private
-state-of-project report for one canonical project tag using the
+Capture source data once per relevant source window/entity, then produce a
+private state-of-project report for one canonical project tag using the
 filesystem-first Project Intel contracts.
 
 ## Trigger
@@ -58,14 +58,17 @@ Future concepts:
 
 1. Compute shared source fetch windows from filesystem cursors.
 2. Build the data-fetch plan from `source-families.yaml`.
-3. Run implemented source readers. GitHub and Gmail are currently implemented;
-   Fireflies batch discovery, Drive, and deployment-provider-specific readers
-   remain source coverage gaps until their readers exist.
-4. Build the derived shared tagging worklist from untouched/tagged files, source
-   hashes, registry hash, and tagger metadata.
+3. Run implemented source readers. GitHub and Gmail are currently implemented.
+   Gmail is broad shared-source ingestion; GitHub is project-profile-driven
+   source-entity ingestion. Fireflies batch discovery, Drive, and
+   deployment-provider-specific readers remain source coverage gaps until their
+   readers exist.
+4. Build the derived source-artifact tagging worklist from untouched/tagged
+   files, source hashes, registry hash, and tagger metadata.
 5. If worklist items need tagging, run `project-tagger` only on items where
-   `work_required: true`; skip `current` items. Tagging is shared source work,
-   not a per-project report pass.
+   `work_required: true`; skip `current` items. Tagging may operate on broad
+   shared artifacts or project-scoped source entities, but it is not repeated
+   just because another report is being generated.
 6. Confirm the report project tag exists and is active.
 7. Validate tagged logs.
 8. Extract tagged evidence records.
