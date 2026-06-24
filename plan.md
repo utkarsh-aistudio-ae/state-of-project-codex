@@ -436,7 +436,8 @@ Nightly data-fetch and report skeleton:
 
 ```bash
 python3 scripts/project_intel.py run-data-fetch
-python3 scripts/project_intel.py run-state-report Argos-ddt
+python3 scripts/project_intel.py synthesize-project-state Argos-ddt
+python3 scripts/project_intel.py write-state-report Argos-ddt
 ```
 
 The external scheduler owns timing. `run-data-fetch` runs planned
@@ -446,10 +447,14 @@ windows, reads default data-fetch sources from
 unimplemented batch readers, writes untouched logs, writes a private run
 manifest, and advances fetch cursors after successful source capture.
 
-`run-state-report <Project-tag>` is project-specific. It does not fetch
+`synthesize-project-state <Project-tag>` is project-specific. It does not fetch
 datasources and does not retag current source logs. It requires the derived
-cursor-selected source-artifact tagging worklist to be clear,
-validates/extracts evidence, writes a private state-of-project report, writes a
+cursor-selected source-artifact tagging worklist to be clear, validates/extracts
+evidence, and writes private synthesis JSON/Markdown without advancing the
+report cursor.
+
+`write-state-report <Project-tag>` consumes completed synthesis, writes
+canonical private report JSON/Markdown, renders HTML/PDF derivatives, writes a
 private run manifest, and advances only the project report cursor when the
 report stage succeeds.
 
@@ -1106,8 +1111,8 @@ Acceptance criteria:
 
 ## Phase 12: State Report Writer
 
-Build after the project-state synthesizer, or keep the current placeholder
-report as a skeleton until synthesis exists.
+Status: implemented as the `state-report-writer` skill and
+`python3 scripts/project_intel.py write-state-report <Project-tag>`.
 
 The report writer owns presentation, not deep interpretation. It consumes
 synthesis output and source coverage metadata.
@@ -1131,6 +1136,17 @@ Window: <date range>
 
 It should include uncertain tags until resolved.
 
+Current command:
+
+```bash
+python3 scripts/project_intel.py write-state-report <Project-tag> --synthesis data/projects/<Project-tag>/synthesis/<run-id>_synthesis.json
+```
+
+If `--synthesis` is omitted, the command uses the latest synthesized artifact.
+It writes canonical JSON/Markdown under `data/reports`, renders HTML/PDF
+derivatives, writes a run manifest, and advances the project report cursor
+unless `--no-advance-cursor` is used.
+
 Acceptance criteria:
 
 - report can cite source files/links
@@ -1138,7 +1154,7 @@ Acceptance criteria:
 - report distinguishes confirmed vs uncertain
 - report lists skipped/unavailable sources
 - no secrets are included
-- PDF is treated as a derivative of canonical markdown/JSON when added later
+- PDF is treated as a derivative of canonical markdown/JSON
 
 ## Phase 13: Issue Auditor And Writer
 

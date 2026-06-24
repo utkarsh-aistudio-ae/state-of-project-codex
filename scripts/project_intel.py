@@ -19,8 +19,10 @@ from __future__ import annotations
 import argparse
 from email.utils import parsedate_to_datetime
 import hashlib
+import html
 import json
 import re
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -623,6 +625,21 @@ def cursor_path(project: str, name: str) -> Path:
 def report_path(project: str, run_id: str, ended_at: datetime) -> Path:
     day = ended_at.strftime("%Y-%m-%d")
     return ROOT / "data" / "reports" / project / day / f"{run_id}_state-of-project.md"
+
+
+def report_json_path(project: str, run_id: str, ended_at: datetime) -> Path:
+    day = ended_at.strftime("%Y-%m-%d")
+    return ROOT / "data" / "reports" / project / day / f"{run_id}_state-of-project.json"
+
+
+def report_html_path(project: str, run_id: str, ended_at: datetime) -> Path:
+    day = ended_at.strftime("%Y-%m-%d")
+    return ROOT / "data" / "reports" / project / day / f"{run_id}_state-of-project.html"
+
+
+def report_pdf_path(project: str, run_id: str, ended_at: datetime) -> Path:
+    day = ended_at.strftime("%Y-%m-%d")
+    return ROOT / "data" / "reports" / project / day / f"{run_id}_state-of-project.pdf"
 
 
 def synthesis_dir(project: str) -> Path:
@@ -3623,6 +3640,565 @@ def validate_synthesis(args: argparse.Namespace) -> int:
     return 0 if report["status"] == "ok" else 1
 
 
+def project_display_name(project: str, registry: ProjectRegistry) -> str:
+    profile = registry.profiles.get(project, {})
+    aliases = string_list(profile.get("aliases"))
+    for alias in aliases:
+        if " " in alias:
+            return alias
+    description = profile.get("description")
+    if isinstance(description, str) and description.strip():
+        return project.replace("-", " ")
+    return project
+
+
+def load_synthesis_artifact(path: Path) -> dict[str, Any]:
+    payload = read_json_file(path, {})
+    if not isinstance(payload, dict) or not payload:
+        raise RuntimeError(f"Could not read synthesis artifact: {ensure_relative(path)}")
+    return payload
+
+
+def latest_synthesized_synthesis_path(project: str) -> Path:
+    candidates = sorted(synthesis_dir(project).glob("*_synthesis.json"), reverse=True)
+    for path in candidates:
+        payload = read_json_file(path, {})
+        if isinstance(payload, dict) and payload.get("synthesis_status") == "synthesized":
+            return path
+    raise RuntimeError(f"No synthesized synthesis artifact found for project: {project}")
+
+
+def resolve_synthesis_artifact(project: str, value: str | None) -> tuple[Path, dict[str, Any]]:
+    path = resolve_path_argument(value) if value else latest_synthesized_synthesis_path(project)
+    payload = load_synthesis_artifact(path)
+    if payload.get("project") != project:
+        raise RuntimeError(
+            f"Synthesis project mismatch: expected {project}, got {payload.get('project')}"
+        )
+    validation = validate_synthesis_payload(payload)
+    if validation["status"] != "ok":
+        raise RuntimeError(
+            "Synthesis artifact is not valid: "
+            + "; ".join(str(error) for error in validation.get("errors", []))
+        )
+    return path, payload
+
+
+def evidence_records_by_id(synthesis_payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    evidence = synthesis_payload.get("evidence")
+    if not isinstance(evidence, dict):
+        return {}
+    records: dict[str, dict[str, Any]] = {}
+    for key in ("confirmed_records", "uncertain_records"):
+        values = evidence.get(key)
+        if not isinstance(values, list):
+            continue
+        for record in values:
+            if isinstance(record, dict) and isinstance(record.get("record_id"), str):
+                records[record["record_id"]] = record
+    return records
+
+
+def report_item(item: dict[str, Any], evidence_index: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    evidence_ids = [ref for ref in item.get("evidence", []) if isinstance(ref, str)]
+    return {
+        "title": str(item.get("title") or "Untitled"),
+        "status": str(item.get("status") or "unknown"),
+        "confidence": str(item.get("confidence") or "unknown"),
+        "occurred_at": item.get("occurred_at"),
+        "summary": str(item.get("summary") or item.get("reason") or ""),
+        "evidence": evidence_ids,
+        "sources": [
+            {
+                "record_id": ref,
+                "source": evidence_index.get(ref, {}).get("source"),
+                "occurred_at": evidence_index.get(ref, {}).get("occurred_at"),
+                "source_file": evidence_index.get(ref, {}).get("source_file"),
+                "block_start_line": evidence_index.get(ref, {}).get("block_start_line"),
+            }
+            for ref in evidence_ids
+            if ref in evidence_index
+        ],
+    }
+
+
+def report_items(items: Any, evidence_index: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    if not isinstance(items, list):
+        return []
+    return [report_item(item, evidence_index) for item in items if isinstance(item, dict)]
+
+
+def build_suggested_followups(
+    synthesis: dict[str, Any],
+    evidence_index: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    followups: list[dict[str, Any]] = []
+    for item in synthesis.get("open_questions", []) if isinstance(synthesis.get("open_questions"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        evidence_ids = [ref for ref in item.get("evidence", []) if isinstance(ref, str)]
+        title = str(item.get("title") or "Resolve open question").rstrip("?")
+        followups.append({
+            "type": "verification",
+            "title": title,
+            "priority": "high",
+            "basis": str(item.get("summary") or ""),
+            "evidence": evidence_ids,
+            "sources": [evidence_index[ref] for ref in evidence_ids if ref in evidence_index],
+            "external_write": False,
+        })
+
+    for item in synthesis.get("review_signals", []) if isinstance(synthesis.get("review_signals"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        record_id = item.get("record_id")
+        evidence_ids = [record_id] if isinstance(record_id, str) else []
+        followups.append({
+            "type": "review",
+            "title": "Resolve uncertain project signal",
+            "priority": "medium",
+            "basis": str(item.get("reason") or ""),
+            "recommended_action": str(item.get("recommended_action") or ""),
+            "evidence": evidence_ids,
+            "sources": [evidence_index[ref] for ref in evidence_ids if ref in evidence_index],
+            "external_write": False,
+        })
+
+    for item in synthesis.get("missing_evidence_caveats", []) if isinstance(synthesis.get("missing_evidence_caveats"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "")
+        if "reader" not in title.lower() and "coverage" not in title.lower():
+            continue
+        evidence_ids = [ref for ref in item.get("evidence", []) if isinstance(ref, str)]
+        followups.append({
+            "type": "source-coverage",
+            "title": title,
+            "priority": "medium",
+            "basis": str(item.get("summary") or ""),
+            "evidence": evidence_ids,
+            "sources": [evidence_index[ref] for ref in evidence_ids if ref in evidence_index],
+            "external_write": False,
+        })
+    return followups
+
+
+def build_state_report_payload(
+    synthesis_payload: dict[str, Any],
+    synthesis_path_value: Path,
+    generated_at: datetime,
+    registry: ProjectRegistry,
+) -> dict[str, Any]:
+    project = str(synthesis_payload["project"])
+    synthesis = synthesis_payload.get("synthesis") if isinstance(synthesis_payload.get("synthesis"), dict) else {}
+    evidence_index = evidence_records_by_id(synthesis_payload)
+    report_run_id = str(synthesis_payload.get("run_id") or make_run_id(generated_at))
+    self_evaluation = synthesis_payload.get("self_evaluation")
+    if not isinstance(self_evaluation, dict):
+        self_evaluation = {}
+
+    return {
+        "schema_version": 1,
+        "artifact_type": "state_of_project_report",
+        "project": project,
+        "project_display_name": project_display_name(project, registry),
+        "run_id": report_run_id,
+        "generated_at": iso(generated_at),
+        "window": synthesis_payload.get("window", {}),
+        "source_synthesis": {
+            "path": ensure_relative(synthesis_path_value),
+            "run_id": synthesis_payload.get("run_id"),
+            "generated_at": synthesis_payload.get("generated_at"),
+            "confidence": synthesis.get("confidence"),
+            "self_evaluation": self_evaluation,
+        },
+        "source_coverage": synthesis_payload.get("source_coverage", []),
+        "evidence_summary": synthesis_payload.get("evidence_summary", {}),
+        "sections": {
+            "tl_dr": report_items(synthesis.get("summary"), evidence_index),
+            "shipped_deployed": report_items(synthesis.get("shipped_work"), evidence_index),
+            "client_stakeholder_signals": [
+                *report_items(synthesis.get("blockers"), evidence_index),
+                *report_items(synthesis.get("open_questions"), evidence_index),
+            ],
+            "meetings_decisions_commitments": [
+                *report_items(synthesis.get("decisions"), evidence_index),
+                *report_items(synthesis.get("commitments"), evidence_index),
+            ],
+            "risks_blockers_open_questions": [
+                *report_items(synthesis.get("risks"), evidence_index),
+                *report_items(synthesis.get("blockers"), evidence_index),
+                *report_items(synthesis.get("open_questions"), evidence_index),
+            ],
+            "suggested_followups": build_suggested_followups(synthesis, evidence_index),
+            "review_items": synthesis.get("review_signals", []),
+            "source_conflicts": report_items(synthesis.get("source_conflicts"), evidence_index),
+            "source_caveats": {
+                "missing_evidence": report_items(synthesis.get("missing_evidence_caveats"), evidence_index),
+                "known_weaknesses": self_evaluation.get("known_weaknesses", []),
+                "needs_human_review": self_evaluation.get("needs_human_review", []),
+            },
+        },
+        "evidence_index": evidence_index,
+    }
+
+
+def evidence_label(evidence_ids: list[str]) -> str:
+    if not evidence_ids:
+        return "none"
+    return ", ".join(f"`{ref}`" for ref in evidence_ids)
+
+
+def append_report_items(lines: list[str], items: list[dict[str, Any]], empty_text: str) -> None:
+    if not items:
+        lines.append(empty_text)
+        return
+    for item in items:
+        title = item.get("title") or "Untitled"
+        status = item.get("status") or "unknown"
+        confidence = item.get("confidence") or "unknown"
+        occurred_at = item.get("occurred_at") or "unknown"
+        lines.extend([
+            f"### {title}",
+            "",
+            f"- Status: `{status}`",
+            f"- Confidence: `{confidence}`",
+            f"- Occurred at: `{occurred_at}`",
+            "",
+            f"{item.get('summary') or item.get('basis') or ''}",
+            "",
+            f"Evidence: {evidence_label(item.get('evidence', []))}",
+            "",
+        ])
+        if item.get("recommended_action"):
+            lines.extend([f"Recommended action: {item['recommended_action']}", ""])
+
+
+def render_state_report_markdown(payload: dict[str, Any]) -> str:
+    sections = payload.get("sections", {})
+    window = payload.get("window", {})
+    source_synthesis = payload.get("source_synthesis", {})
+    self_eval = source_synthesis.get("self_evaluation") if isinstance(source_synthesis, dict) else {}
+    if not isinstance(self_eval, dict):
+        self_eval = {}
+    title = payload.get("project_display_name") or payload.get("project")
+    lines = [
+        f"# State of Project: {title}",
+        "",
+        f"- Project tag: `{payload.get('project')}`",
+        f"- Window: `{window.get('start')}` to `{window.get('end')}`",
+        f"- Generated: `{payload.get('generated_at')}`",
+        f"- Overall confidence: `{source_synthesis.get('confidence') or 'unknown'}`",
+        f"- Source synthesis: `{source_synthesis.get('path')}`",
+        "",
+        "## 1. TL;DR",
+        "",
+    ]
+    append_report_items(lines, sections.get("tl_dr", []), "_No summary items were available._")
+
+    lines.extend(["## 2. Shipped / Deployed", ""])
+    append_report_items(lines, sections.get("shipped_deployed", []), "_No shipped/deployed items were available._")
+
+    lines.extend(["## 3. Client Or Stakeholder Signals", ""])
+    append_report_items(lines, sections.get("client_stakeholder_signals", []), "_No stakeholder signals were available._")
+
+    lines.extend(["## 4. Meetings, Decisions, And Commitments", ""])
+    append_report_items(
+        lines,
+        sections.get("meetings_decisions_commitments", []),
+        "_No decisions or commitments were available._",
+    )
+
+    lines.extend(["## 5. Risks, Blockers, And Open Questions", ""])
+    append_report_items(
+        lines,
+        sections.get("risks_blockers_open_questions", []),
+        "_No risks, blockers, or open questions were available._",
+    )
+
+    lines.extend(["## 6. Suggested Follow-Ups", ""])
+    followups = sections.get("suggested_followups", [])
+    if not followups:
+        lines.append("_No follow-ups were suggested._")
+        lines.append("")
+    for item in followups:
+        lines.extend([
+            f"### {item.get('title') or 'Follow-up'}",
+            "",
+            f"- Type: `{item.get('type')}`",
+            f"- Priority: `{item.get('priority')}`",
+            f"- External write: `{item.get('external_write')}`",
+            f"- Basis: {item.get('basis') or item.get('recommended_action') or ''}",
+            f"- Evidence: {evidence_label(item.get('evidence', []))}",
+            "",
+        ])
+        if item.get("recommended_action"):
+            lines.extend([f"Recommended action: {item['recommended_action']}", ""])
+
+    lines.extend(["## 7. Uncertain / Review", ""])
+    review_items = sections.get("review_items", [])
+    if not review_items:
+        lines.append("_No uncertain review items._")
+        lines.append("")
+    for item in review_items:
+        lines.extend([
+            f"### {item.get('record_id') or 'Review item'}",
+            "",
+            f"- Source: `{item.get('source')}`",
+            f"- Occurred at: `{item.get('occurred_at')}`",
+            f"- Source file: `{item.get('source_file')}:{item.get('block_start_line')}`",
+            f"- Reason: {item.get('reason')}",
+        ])
+        if item.get("recommended_action"):
+            lines.append(f"- Recommended action: {item.get('recommended_action')}")
+        lines.append("")
+
+    lines.extend(["## 8. Source Coverage And Caveats", ""])
+    coverage = payload.get("source_coverage", [])
+    if coverage:
+        lines.extend(["| Source | Status | Last fetch | Cursor |", "| --- | --- | --- | --- |"])
+        for row in coverage:
+            label = str(row.get("source") or "unknown")
+            if row.get("project"):
+                label = f"{label}/{row.get('project')}"
+            lines.append(
+                f"| {label} | {row.get('reader_status') or 'unknown'} | "
+                f"{row.get('last_successful_fetch_at') or 'unknown'} | "
+                f"`{row.get('cursor_path') or 'unknown'}` |"
+            )
+        lines.append("")
+    else:
+        lines.extend(["_No source coverage rows were available._", ""])
+
+    caveats = sections.get("source_caveats", {})
+    if isinstance(caveats, dict):
+        lines.extend(["### Missing Evidence", ""])
+        append_report_items(lines, caveats.get("missing_evidence", []), "_No missing-evidence caveats were available._")
+        lines.extend(["### Known Weaknesses", ""])
+        for weakness in caveats.get("known_weaknesses", []) or []:
+            lines.append(f"- {weakness}")
+        if not caveats.get("known_weaknesses"):
+            lines.append("_No known weaknesses were recorded._")
+        lines.extend(["", "### Human Review Needed", ""])
+        for item in caveats.get("needs_human_review", []) or []:
+            lines.append(f"- {item}")
+        if not caveats.get("needs_human_review"):
+            lines.append("_No human-review items were recorded._")
+        lines.append("")
+
+    lines.extend(["## 9. Evidence Index", ""])
+    evidence_index = payload.get("evidence_index", {})
+    if not isinstance(evidence_index, dict) or not evidence_index:
+        lines.append("_No evidence index was available._")
+    else:
+        for record_id, record in sorted(evidence_index.items()):
+            lines.append(
+                f"- `{record_id}` `{record.get('source')}` `{record.get('occurred_at')}` "
+                f"`{record.get('source_file')}:{record.get('block_start_line')}`"
+            )
+    lines.extend([
+        "",
+        "## 10. Report Integrity",
+        "",
+        f"- Evidence faithfulness: `{self_eval.get('evidence_faithfulness') or 'unknown'}`",
+        f"- Chronology quality: `{self_eval.get('chronology_quality') or 'unknown'}`",
+        f"- Cross-source reasoning: `{self_eval.get('cross_source_reasoning') or 'unknown'}`",
+        f"- Uncertainty handling: `{self_eval.get('uncertainty_handling') or 'unknown'}`",
+        f"- Source coverage honesty: `{self_eval.get('source_coverage_honesty') or 'unknown'}`",
+        "",
+        "_This PDF is a derivative. The canonical report artifacts are the JSON and Markdown files in the same report folder._",
+    ])
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def render_report_html(markdown_path: Path, html_path_value: Path, title: str) -> WriteResult:
+    try:
+        completed = subprocess.run(
+            ["pandoc", str(markdown_path), "-f", "gfm", "-t", "html5"],
+            cwd=ROOT,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError("Could not render report HTML with pandoc.") from exc
+
+    css = """
+body { color: #15171a; font-family: Inter, Arial, sans-serif; font-size: 12px; line-height: 1.42; margin: 0; }
+h1 { border-bottom: 2px solid #111827; font-size: 24px; margin-bottom: 16px; padding-bottom: 10px; }
+h2 { border-top: 1px solid #d7dce2; font-size: 17px; margin-top: 24px; padding-top: 16px; }
+h3 { font-size: 13px; margin-bottom: 6px; }
+code { background: #f2f4f7; border-radius: 3px; font-size: 11px; padding: 1px 4px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border-bottom: 1px solid #e1e5ea; padding: 6px; text-align: left; vertical-align: top; }
+blockquote { border-left: 3px solid #b8c0cc; color: #4b5563; margin-left: 0; padding-left: 12px; }
+@page { size: A4; margin: 14mm 12mm; }
+@media print { h2 { break-before: auto; } h3, table { break-inside: avoid; } }
+"""
+    document = "\n".join([
+        "<!doctype html>",
+        "<html>",
+        "<head>",
+        '<meta charset="utf-8">',
+        f"<title>{html.escape(title)}</title>",
+        f"<style>{css}</style>",
+        "</head>",
+        "<body>",
+        completed.stdout,
+        "</body>",
+        "</html>",
+        "",
+    ])
+    return write_text_if_changed(html_path_value, document)
+
+
+def render_report_pdf(html_path_value: Path, pdf_path_value: Path) -> WriteResult:
+    chromium = (
+        shutil.which("chromium-browser")
+        or shutil.which("chromium")
+        or shutil.which("google-chrome")
+    )
+    if not chromium:
+        raise RuntimeError("Could not render PDF: Chromium is not available.")
+    pdf_path_value.parent.mkdir(parents=True, exist_ok=True)
+    temp_pdf = Path.home() / f"project-intel-{make_run_id()}-{pdf_path_value.name}"
+    if temp_pdf.exists():
+        temp_pdf.unlink()
+    command = [
+        chromium,
+        "--headless",
+        "--disable-gpu",
+        "--disable-dev-shm-usage",
+        "--no-sandbox",
+        "--print-to-pdf-no-header",
+        f"--print-to-pdf={temp_pdf}",
+        html_path_value.resolve().as_uri(),
+    ]
+    try:
+        subprocess.run(command, cwd=ROOT, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip()
+        raise RuntimeError(f"Could not render PDF with Chromium: {detail[:1000]}") from exc
+    if not temp_pdf.exists() or temp_pdf.stat().st_size <= 0:
+        raise RuntimeError(f"PDF renderer did not create output: {temp_pdf}")
+    pdf_path_value.write_bytes(temp_pdf.read_bytes())
+    temp_pdf.unlink()
+    if not pdf_path_value.exists() or pdf_path_value.stat().st_size <= 0:
+        raise RuntimeError(f"PDF output could not be copied into report folder: {ensure_relative(pdf_path_value)}")
+    return WriteResult(pdf_path_value, "written")
+
+
+def write_state_report(args: argparse.Namespace) -> int:
+    project = args.project
+    started_at = utc_now()
+    manifest: dict[str, Any] = {
+        "run_id": make_run_id(started_at),
+        "timestamp": iso(started_at),
+        "started_at": iso(started_at),
+        "trigger_source": "manual_cli",
+        "command": f"write-state-report {project}",
+        "project": project,
+        "status": "started",
+        "mutations_performed": False,
+        "external_delivery": False,
+        "warnings": [],
+        "errors": [],
+    }
+
+    try:
+        registry = load_project_registry()
+        if project not in registry.project_tags:
+            raise RuntimeError(f"Unknown project tag: {project}")
+        synthesis_path_value, synthesis_payload = resolve_synthesis_artifact(project, args.synthesis)
+        generated_at = started_at
+        report_payload = build_state_report_payload(
+            synthesis_payload,
+            synthesis_path_value,
+            generated_at,
+            registry,
+        )
+        report_run_id = str(report_payload["run_id"])
+        report_end = parse_iso_datetime(nested_dict(report_payload, "window").get("end")) or generated_at
+
+        json_output = report_json_path(project, report_run_id, report_end)
+        markdown_output = report_path(project, report_run_id, report_end)
+        html_output = report_html_path(project, report_run_id, report_end)
+        pdf_output = report_pdf_path(project, report_run_id, report_end)
+
+        json_result = write_json_if_changed(json_output, report_payload)
+        markdown_result = write_text_if_changed(markdown_output, render_state_report_markdown(report_payload))
+        html_result: WriteResult | None = None
+        pdf_result: WriteResult | None = None
+        if not args.no_pdf:
+            html_result = render_report_html(
+                markdown_output,
+                html_output,
+                f"State of Project: {report_payload.get('project_display_name')}",
+            )
+            pdf_result = render_report_pdf(html_output, pdf_output)
+
+        manifest["source_synthesis"] = ensure_relative(synthesis_path_value)
+        manifest["report"] = {
+            "json_path": ensure_relative(json_result.path),
+            "json_status": json_result.status,
+            "markdown_path": ensure_relative(markdown_result.path),
+            "markdown_status": markdown_result.status,
+            "html_path": ensure_relative(html_result.path) if html_result else None,
+            "html_status": html_result.status if html_result else "skipped",
+            "pdf_path": ensure_relative(pdf_result.path) if pdf_result else None,
+            "pdf_status": pdf_result.status if pdf_result else "skipped",
+            "confidence": nested_dict(report_payload, "source_synthesis").get("confidence"),
+        }
+
+        report_cursor = read_json_file(cursor_path(project, "report"), {})
+        if args.no_advance_cursor:
+            manifest["report_cursor"] = {
+                "path": ensure_relative(cursor_path(project, "report")),
+                "advanced": False,
+                "reason": "--no-advance-cursor",
+                "previous_cursor": report_cursor,
+            }
+        else:
+            cursor_payload = {
+                "project": project,
+                "last_successful_report_at": iso(report_end),
+                "last_report_run_id": report_run_id,
+                "last_manifest_run_id": manifest["run_id"],
+                "source_synthesis": ensure_relative(synthesis_path_value),
+                "previous_cursor": report_cursor,
+            }
+            cursor_result = write_json_if_changed(cursor_path(project, "report"), cursor_payload)
+            manifest["report_cursor"] = {
+                "path": ensure_relative(cursor_result.path),
+                "advanced": True,
+                "status": cursor_result.status,
+                "advanced_to": iso(report_end),
+            }
+        manifest["status"] = "ok"
+
+    except Exception as exc:  # noqa: BLE001 - CLI should manifest failures.
+        manifest["status"] = "failed"
+        manifest["errors"].append(str(exc))
+        finalize_manifest(manifest, started_at)
+        manifest_result = write_run_manifest(str(manifest["run_id"]), manifest)
+        print(f"State report writing failed: {project}", file=sys.stderr)
+        print(str(exc), file=sys.stderr)
+        print(f"- manifest: {ensure_relative(manifest_result.path)}", file=sys.stderr)
+        return 1
+
+    finalize_manifest(manifest, started_at)
+    manifest_result = write_run_manifest(str(manifest["run_id"]), manifest)
+    print(f"State report written: {project}")
+    print(f"- status: {manifest['status']}")
+    print(f"- report json: {manifest['report']['json_path']}")
+    print(f"- report markdown: {manifest['report']['markdown_path']}")
+    if manifest["report"].get("pdf_path"):
+        print(f"- report pdf: {manifest['report']['pdf_path']}")
+    print(f"- manifest: {ensure_relative(manifest_result.path)}")
+    return 0
+
+
 def render_project_report(
     project: str,
     run_id: str,
@@ -4067,7 +4643,7 @@ def synthesize_project_state(args: argparse.Namespace) -> int:
 def run_project_deprecated(args: argparse.Namespace) -> int:
     print("`run-project` has been retired as a fetch entrypoint.", file=sys.stderr)
     print("Use `run-data-fetch` once for shared datasource ingestion.", file=sys.stderr)
-    print(f"Then use `run-state-report {args.project}` for the project-specific report stage.", file=sys.stderr)
+    print(f"Then use `write-state-report {args.project}` for the project-specific report stage.", file=sys.stderr)
     return 2
 
 
@@ -4257,7 +4833,7 @@ def build_parser() -> argparse.ArgumentParser:
     github_repo_parser.add_argument("--until", help="Fetch window end, ISO timestamp or YYYY-MM-DD")
     github_repo_parser.set_defaults(func=github_fetch_repo)
 
-    run_state_report_parser = subparsers.add_parser("run-state-report", help="Run project-specific report pipeline")
+    run_state_report_parser = subparsers.add_parser("run-state-report", help="Legacy placeholder report pipeline")
     run_state_report_parser.add_argument("project", help="Canonical project tag")
     run_state_report_parser.set_defaults(func=run_state_report)
 
@@ -4276,7 +4852,17 @@ def build_parser() -> argparse.ArgumentParser:
     validate_synthesis_parser.add_argument("--json", action="store_true", help="Print validation report as JSON")
     validate_synthesis_parser.set_defaults(func=validate_synthesis)
 
-    run_project_parser = subparsers.add_parser("run-project", help="Deprecated: use run-data-fetch and run-state-report")
+    write_state_report_parser = subparsers.add_parser(
+        "write-state-report",
+        help="Write a management report from a completed synthesis artifact",
+    )
+    write_state_report_parser.add_argument("project", help="Canonical project tag")
+    write_state_report_parser.add_argument("--synthesis", help="Path to synthesis JSON artifact; defaults to latest synthesized artifact")
+    write_state_report_parser.add_argument("--no-pdf", action="store_true", help="Skip HTML/PDF derivative rendering")
+    write_state_report_parser.add_argument("--no-advance-cursor", action="store_true", help="Do not advance the project report cursor")
+    write_state_report_parser.set_defaults(func=write_state_report)
+
+    run_project_parser = subparsers.add_parser("run-project", help="Deprecated: use run-data-fetch, synthesize-project-state, and write-state-report")
     run_project_parser.add_argument("project", help="Canonical project tag")
     run_project_parser.set_defaults(func=run_project_deprecated)
 

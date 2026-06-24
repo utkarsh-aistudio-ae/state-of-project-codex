@@ -26,7 +26,8 @@ Project-specific reporting runs after the relevant source logs are fetched and
 tagged:
 
 ```bash
-python3 scripts/project_intel.py run-state-report <Project-tag>
+python3 scripts/project_intel.py synthesize-project-state <Project-tag>
+python3 scripts/project_intel.py write-state-report <Project-tag>
 ```
 
 The scheduler owns timing. Project Intel owns the run contract, fetch cursors,
@@ -50,14 +51,13 @@ Current skills:
 - `run-state-of-project`: conductor for the current workflow
 - `project-tagger`: Codex judgment for project annotations
 - `project-state-synthesizer`: Codex judgment for source-backed project state
+- `state-report-writer`: report presentation and PDF derivative rendering
 - `capture-project-intel-teachings`: durable workflow learning
 
 Future concepts:
 
 - `project-resource-discoverer`: wide-net discovery for repos, deployments, and
   other project-linked source entities
-- `state-report-writer`: report presentation
-- PDF renderer: derivative artifact generation
 
 ## Ordered Steps
 
@@ -95,11 +95,11 @@ Future concepts:
     <Project-tag>` to prepare the private synthesis evidence pack and draft.
 12. Run `project-state-synthesizer` to fill the synthesis reasoning from
     confirmed evidence and route uncertain evidence to review sections.
-13. Current skeleton: `run-state-report` can still write a private placeholder
-    report directly from extracted records while report writing is immature.
-14. Future: run `state-report-writer`, then PDF rendering.
-15. Write manifest.
-16. Advance resource-discovery cursors after successful discovery; advance fetch
+13. Run `state-report-writer`, usually via `python3 scripts/project_intel.py
+    write-state-report <Project-tag>`, to write canonical report JSON/Markdown
+    and render HTML/PDF derivatives.
+14. Write manifest.
+15. Advance resource-discovery cursors after successful discovery; advance fetch
     cursors after successful source fetches; advance tagging
     cursors after successful tagging for their selected candidate set; advance
     report cursor only when the report stage succeeds.

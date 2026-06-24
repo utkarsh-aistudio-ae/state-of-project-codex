@@ -472,11 +472,16 @@ external scheduler -> run-data-fetch
   -> run implemented source readers once per relevant cursor window/entity
   -> record source coverage gaps for unimplemented batch readers
 
-external scheduler or follow-on step -> run-state-report <Project-tag>
+external scheduler or follow-on step -> synthesize-project-state <Project-tag>
   -> require clear cursor-selected tagging worklist
   -> validate tagged logs
   -> extract evidence JSONL
-  -> generate private state-of-project report
+  -> generate private project-state synthesis
+
+external scheduler or follow-on step -> write-state-report <Project-tag>
+  -> consume completed synthesis
+  -> generate canonical private state-of-project report JSON/Markdown
+  -> render derivative HTML/PDF
   -> advance project report cursor only after the report stage succeeds
 ```
 

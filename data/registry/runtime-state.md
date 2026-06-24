@@ -12,7 +12,8 @@ scheduled-run metadata contract is documented in
 
 ```bash
 python3 scripts/project_intel.py run-data-fetch
-python3 scripts/project_intel.py run-state-report <Project-tag>
+python3 scripts/project_intel.py synthesize-project-state <Project-tag>
+python3 scripts/project_intel.py write-state-report <Project-tag>
 ```
 
 ## Cursors

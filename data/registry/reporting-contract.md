@@ -17,7 +17,7 @@ tagged evidence records
 -> canonical synthesis markdown/JSON
 -> state-report-writer
 -> canonical report markdown/JSON
--> PDF renderer later
+-> derivative HTML/PDF renderer
 ```
 
 ## Project State Synthesizer
@@ -88,7 +88,7 @@ Responsibilities:
 - include uncertain project-resource candidates in a review section with
   confidence, matched signals, source reference, and recommended next action
 - avoid adding new factual claims that are not in synthesis or source evidence
-- prepare canonical markdown/JSON for later PDF rendering
+- prepare canonical markdown/JSON and derivative HTML/PDF artifacts
 
 The report writer should not be responsible for deep chronology inference,
 cross-source contradiction detection, or comparing conversation promises to
@@ -99,14 +99,25 @@ Suggested output path:
 ```text
 data/reports/<Project-tag>/<YYYY-MM-DD>/<run-id>_state-of-project.md
 data/reports/<Project-tag>/<YYYY-MM-DD>/<run-id>_state-of-project.json
+data/reports/<Project-tag>/<YYYY-MM-DD>/<run-id>_state-of-project.pdf
 ```
 
-PDFs are derivatives and should be rendered later from canonical report
-artifacts.
+PDFs are derivatives rendered from canonical report artifacts. The JSON and
+Markdown remain the durable report truth.
 
-## Current Skeleton
+Current command:
+
+```bash
+python3 scripts/project_intel.py write-state-report <Project-tag> --synthesis data/projects/<Project-tag>/synthesis/<run-id>_synthesis.json
+```
+
+If `--synthesis` is omitted, the command uses the latest synthesized artifact
+for the project. It writes report JSON/Markdown, renders HTML/PDF derivatives,
+writes a run manifest, and advances the project report cursor after success
+unless `--no-advance-cursor` is set.
+
+## Legacy Skeleton
 
 The current `run-state-report` command writes a placeholder private markdown
-report directly from extracted records. This is acceptable only as a skeleton.
-Before generating management-grade reports, introduce the synthesis boundary
-above so the report writer does not become the intelligence layer.
+report directly from extracted records. Keep it only as a legacy skeleton while
+the synthesis-backed report writer becomes the canonical reporting path.

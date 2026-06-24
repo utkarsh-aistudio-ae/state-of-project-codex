@@ -1,0 +1,4 @@
+interface:
+  display_name: "State Report Writer"
+  short_description: "Turn synthesis into management reports."
+  default_prompt: "Use $state-report-writer to produce a management report from a Project Intel synthesis artifact."

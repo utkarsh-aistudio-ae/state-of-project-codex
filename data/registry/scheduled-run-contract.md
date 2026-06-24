@@ -7,7 +7,8 @@ data-fetch runs and project-specific report runs:
 
 ```bash
 python3 scripts/project_intel.py run-data-fetch
-python3 scripts/project_intel.py run-state-report <Project-tag>
+python3 scripts/project_intel.py synthesize-project-state <Project-tag>
+python3 scripts/project_intel.py write-state-report <Project-tag>
 ```
 
 This file defines the metadata every future scheduled job must provide or make
@@ -28,7 +29,7 @@ Every scheduled `run-data-fetch` job should define:
 - source cursor behavior
 - audit output path
 
-Every scheduled `run-state-report` job should define:
+Every scheduled project report job should define:
 
 - owner
 - job name
@@ -52,7 +53,8 @@ The current CLI assumes:
 - trigger source: `manual_cli`
 - source-family scope: `default_data_fetch` entries from
   `data/registry/source-families.yaml`
-- project tag: command argument for `run-state-report`
+- project tag: command argument for `synthesize-project-state` and
+  `write-state-report`
 - mutation behavior: no external writes
 - external delivery: none
 - failure notification: command output plus run manifest
