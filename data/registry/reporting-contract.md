@@ -1,6 +1,6 @@
 # Reporting Contract
 
-Last updated: 2026-06-23
+Last updated: 2026-06-24
 
 This file defines the boundary between project-state synthesis and report
 writing.
@@ -31,6 +31,8 @@ Responsibilities:
   work
 - compare conversations, GitHub activity, deployments, and task state when
   those sources exist
+- include project-resource discovery outcomes, separating confirmed
+  newly-linked resources from uncertain candidate resources
 - separate source facts from interpretation
 - assign confidence and missing-evidence caveats
 - avoid creating authoritative entries from uncertain tags alone
@@ -54,6 +56,8 @@ Responsibilities:
 - preserve source windows and confidence
 - list source gaps without hiding them
 - keep uncertain items in review sections
+- include uncertain project-resource candidates in a review section with
+  confidence, matched signals, source reference, and recommended next action
 - avoid adding new factual claims that are not in synthesis or source evidence
 - prepare canonical markdown/JSON for later PDF rendering
 

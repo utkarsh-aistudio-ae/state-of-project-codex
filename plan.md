@@ -100,6 +100,14 @@ duplicating already-seen artifacts/entities; tagging uses cursor-selected
 candidate sets, source hashes, registry state, and tagged metadata to process
 only source logs where work is actually required.
 
+For project-linked sources, add a nightly resource-discovery/reconciliation
+stage before fetch/tag work. It should cast a wide net across provider
+inventories such as GitHub repos, Vercel projects, Railway projects,
+deployment environments, Drive folders, and later Notion areas. High-confidence
+matches can be added to the local project-linked resource list with evidence
+when source policy allows it. Uncertain matches become review items and report
+material, not canonical project evidence.
+
 First target artifact:
 
 ```text
@@ -346,6 +354,14 @@ tags:
         - Alberto Barbera
         - Monish Pathare
         - Krupakar Reddy
+    project_linked_resources:
+      github_repos:
+        - id: aistudioae/argos-ddt-prod
+          status: confirmed
+          source: initial_profile
+        - id: aistudioae/argos-ddt
+          status: confirmed
+          source: initial_profile
 
   - tag: untagged
     kind: special
@@ -355,6 +371,11 @@ tags:
 ```
 
 Notes:
+
+- For the current prototype, `strong_signals.repos` remains supported for
+  GitHub fetching. The target schema is `project_linked_resources`, where
+  discovery can record source ids, status, confidence, source refs, matched
+  signals, and why a resource was linked or routed to review.
 
 - The tagger must use canonical tags only.
 - The tagger can suggest registry additions later, but must not create them
@@ -416,8 +437,9 @@ python3 scripts/project_intel.py run-data-fetch
 python3 scripts/project_intel.py run-state-report Argos-ddt
 ```
 
-The external scheduler owns timing. `run-data-fetch` computes cursor-selected
-source windows, reads default data-fetch sources from
+The external scheduler owns timing. `run-data-fetch` runs planned
+project-resource discovery where supported, computes cursor-selected source
+windows, reads default data-fetch sources from
 `data/registry/source-families.yaml`, records source coverage gaps for
 unimplemented batch readers, writes untouched logs, writes a private run
 manifest, and advances fetch cursors after successful source capture.
@@ -432,6 +454,8 @@ report stage succeeds.
 Skeleton responsibilities:
 
 - call the relevant reader during cursor-governed data fetch
+- discover/reconcile project-linked resources before project-linked fetch/tag
+  work
 - create the untouched path
 - show a derived tagging worklist via the `queue` command
 - run the deterministic tag helper to prepare/update tagged copy metadata
@@ -915,6 +939,18 @@ After registry update:
 - support explicit older backfill by date range, source, or project
 - avoid churn
 
+Nightly resource discovery for existing projects:
+
+- scan project-linked source inventories such as GitHub, Vercel, Railway,
+  deployment environments, Drive folders, and later Notion areas
+- compare candidates against the confirmed project profile and existing
+  project-linked resources
+- auto-link only high-confidence candidates when source-family policy permits
+  and evidence is recorded
+- route uncertain candidates to private review state and the state report
+- do not treat uncertain candidates as canonical evidence or run project-linked
+  fetch/tag cursors for them as confirmed resources
+
 Architectural boundary:
 
 - `initiate-project` proposes profiles and retag windows.
@@ -938,6 +974,8 @@ should remain separate from the tagger conceptually.
 Responsibilities:
 
 - maintain `data/registry/project-tags.yaml`
+- maintain the local project-linked resource list or approve updates proposed by
+  project-resource discovery
 - record enough semantic change information to distinguish a new canonical
   project from an existing project profile update
 - expose per-project profile versions or equivalent hashes so tagging cursors

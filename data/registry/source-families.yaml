@@ -10,6 +10,16 @@ cursor_policy:
     shared_source_new_project_initial_lookback_days: 7
     source_entity: project_linked
     mixed_source: source_or_project_linked_by_entity
+project_resource_discovery_policy:
+  cadence: nightly_per_project
+  high_confidence_action: add_to_project_linked_resources
+  uncertain_action: review_and_report
+  required_evidence:
+    - source_entity_id
+    - source_ref
+    - matched_project_signals
+    - confidence
+    - reason
 source_families:
   - name: GitHub
     default_data_fetch: true
@@ -29,6 +39,13 @@ source_families:
       max_deployment_statuses: 5
       max_releases: 50
       max_branches: 100
+    resource_discovery:
+      status: planned
+      inventory: organization_repositories
+      cursor_owner: project_linked
+      candidate_entity_key: repo
+      high_confidence_action: add_to_project_linked_resources
+      uncertain_action: review_and_report
     canonical_for:
       - repository metadata
       - commits and code review activity
@@ -124,6 +141,16 @@ source_families:
     tagging_cursor_owner: project_linked
     source_entity_key: provider_project_or_environment
     lookback_overlap_hours: 48
+    resource_discovery:
+      status: planned
+      inventory:
+        - Vercel projects
+        - Railway projects
+        - deployment environments
+      cursor_owner: project_linked
+      candidate_entity_key: provider_project_or_environment
+      high_confidence_action: add_to_project_linked_resources
+      uncertain_action: review_and_report
     canonical_for:
       - deployment attempts
       - deployment provider state

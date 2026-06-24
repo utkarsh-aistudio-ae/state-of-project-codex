@@ -28,25 +28,32 @@ orchestrations/state-of-project-nightly.md
    ```
 
    Shared datasources use source-linked fetch cursors. Project-specific source
-   entities use project-linked fetch cursors.
-2. If the derived worklist has non-current items, run the `project-tagger` skill
+   entities use project-linked fetch cursors. Before project-linked source
+   fetches, run resource discovery/reconciliation where supported so new likely
+   repos, deployments, environments, or folders are not missed.
+2. For project-linked source families, treat high-confidence discovered
+   resources as local project profile/resource updates only when the
+   source-family policy allows auto-linking and the evidence is recorded.
+   Uncertain discovered resources become review items and report material, not
+   canonical project evidence.
+3. If the derived worklist has non-current items, run the `project-tagger` skill
    on the blocking untouched logs listed by `queue` or the manifest. Tagging is
    source-artifact/source-entity work with cursor ownership: source-linked for
    shared resources and existing projects, seven-day shared-resource lookback
    for newly added projects, and project-linked for project-specific resources.
    Process only items with `work_required: true` and skip `current` items.
-3. Confirm the project tag exists in `data/registry/project-tags.yaml`.
-4. Run:
+4. Confirm the project tag exists in `data/registry/project-tags.yaml`.
+5. Run:
 
    ```bash
    python3 scripts/project_intel.py run-state-report <Project-tag>
    ```
 
-5. If the report command exits with `tagging_required`, run `project-tagger` on
+6. If the report command exits with `tagging_required`, run `project-tagger` on
    the blocking untouched logs, then rerun `run-state-report`.
-6. If validation fails, inspect the validation report and repair tagged logs
+7. If validation fails, inspect the validation report and repair tagged logs
    without editing untouched logs.
-7. If the run succeeds, review the generated private report under
+8. If the run succeeds, review the generated private report under
    `data/reports/<Project-tag>/...` and the manifest under `logs/runs/...`.
 
 ## Current Behavior
@@ -74,6 +81,9 @@ Current skipped source gaps:
 - Fireflies batch discovery, because only single-transcript fetch exists.
 - Drive.
 - Deployment-provider-specific readers.
+- Wide-net project resource discovery for GitHub repos and deployment provider
+  projects is planned; current GitHub fetches only repos already listed in the
+  active project profile.
 
 The `queue` command is a derived filesystem worklist, not a durable queue. The
 report cursor advances only after the derived worklist is clear, validation

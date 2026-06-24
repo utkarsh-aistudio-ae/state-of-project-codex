@@ -97,6 +97,12 @@ Durable principles:
   should follow source shape: source-linked for shared resources,
   project-linked for project-specific resources, and a seven-day shared-resource
   tagging window when a new canonical project is added.
+- Treat project-linked resource discovery as its own lifecycle step. Every
+  night, source inventories such as GitHub, Vercel, Railway, Drive, and Notion
+  should be scanned for new repos, deployments, environments, folders, or docs
+  that may belong to a named project. High-confidence matches may update the
+  local project-linked resource list with evidence; uncertain matches go to
+  review and must be visible in reports.
 - Treat user corrections as product inputs. Durable process corrections should
   be normalized, routed to the right owner, patched minimally, and validated
   instead of being left only in chat.
@@ -443,6 +449,7 @@ Long-term orchestration topics to discuss explicitly before implementation:
 
 - CLI vs app automation vs service vs CI responsibilities
 - fetch cursor, tagging cursor, and deduplication ownership
+- project-resource discovery, confidence policy, and review routing
 - queue/index/cache storage and rebuild rules
 - run manifest and audit-log schema
 - retry, backoff, and partial-failure semantics
@@ -459,6 +466,7 @@ Current nightly data-fetch/report skeleton:
 
 ```text
 external scheduler -> run-data-fetch
+  -> discover/reconcile project-linked resources where source policy supports it
   -> compute source-linked and project-linked fetch windows from filesystem cursors
   -> read data-fetch source families from data/registry/source-families.yaml
   -> run implemented source readers once per relevant cursor window/entity
@@ -491,6 +499,9 @@ set is:
     nightly state-of-project run
 - `initiate-project`: manually triggered discovery/bootstrap for one project.
 - `project-tag-registry`: canonical project tags, aliases, signatures, dedupe.
+- `project-resource-discoverer`: wide-net discovery and reconciliation for
+  project-linked resources such as repos, deployment projects, environments,
+  folders, and docs.
 - Source readers:
   - Fireflies reader
   - Gmail reader

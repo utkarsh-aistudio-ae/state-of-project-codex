@@ -41,6 +41,7 @@ Every scheduled `run-state-report` job should define:
 - skip rules
 - failure notification path
 - report cursor behavior
+- project-resource discovery behavior for project-linked sources
 - audit output path
 
 ## Current Manual Equivalent
@@ -64,6 +65,14 @@ The current CLI assumes:
 - Fetch cursor ownership follows the source family contract: source-linked for
   broad shared datasources, project-linked for project-specific source
   entities, and entity-dependent for mixed sources.
+- Project-linked source families may run project-resource discovery before
+  fetch/tag work. This scans provider inventory for new repos, deployments,
+  environments, folders, or similar source entities that may belong to the
+  project.
+- High-confidence discovered resources may be added to the local project-linked
+  resource list only when source-family policy allows it and the run manifest
+  records evidence. Uncertain resources must be routed to review and mentioned
+  in the report.
 - Shared-source fetch cursors are not individual project report cursors.
   Project-linked source cursors are valid for project-specific resources and
   prevent newly added projects from inheriting old global source windows.

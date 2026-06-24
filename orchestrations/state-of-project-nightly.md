@@ -9,10 +9,10 @@ workflow.
 
 ## Purpose
 
-Capture source data once per relevant cursor window/entity, tag only
-cursor-selected source artifacts that need work, then produce a private
-state-of-project report for one canonical project tag using the filesystem-first
-Project Intel contracts.
+Discover likely project-linked resources, capture source data once per relevant
+cursor window/entity, tag only cursor-selected source artifacts that need work,
+then produce a private state-of-project report for one canonical project tag
+using the filesystem-first Project Intel contracts.
 
 ## Trigger
 
@@ -53,6 +53,8 @@ Current skills:
 
 Future concepts:
 
+- `project-resource-discoverer`: wide-net discovery for repos, deployments, and
+  other project-linked source entities
 - `project-state-synthesizer`: reasoning and chronology
 - `state-report-writer`: report presentation
 - PDF renderer: derivative artifact generation
@@ -60,32 +62,39 @@ Future concepts:
 ## Ordered Steps
 
 1. Load source-family cursor policy and active project profiles.
-2. Compute fetch windows from filesystem cursors: source-linked for broad
+2. For project-linked source families, run resource discovery/reconciliation
+   across provider inventories such as GitHub repos, Vercel projects, Railway
+   projects, deployment environments, and later Drive/Notion project areas.
+   High-confidence resources may be added to the local project-linked resource
+   list with evidence when policy allows it; uncertain resources become review
+   items and must be mentioned in the report.
+3. Compute fetch windows from filesystem cursors: source-linked for broad
    shared datasources, project-linked for project-specific source entities, and
    entity-dependent for mixed sources.
-3. Run implemented source readers. GitHub and Gmail are currently implemented.
+4. Run implemented source readers. GitHub and Gmail are currently implemented.
    Gmail is broad shared-source ingestion; GitHub is project-profile-driven
    source-entity ingestion. Fireflies batch discovery, Drive, and
    deployment-provider-specific readers remain source coverage gaps until their
    readers exist.
-4. Build the derived source-artifact tagging worklist from the cursor-selected
+5. Build the derived source-artifact tagging worklist from the cursor-selected
    candidate set, untouched/tagged files, source hashes, registry state, and
    tagger metadata.
-5. If worklist items need tagging, run `project-tagger` only on items where
+6. If worklist items need tagging, run `project-tagger` only on items where
    `work_required: true`; skip `current` items. Tagging may operate on broad
    shared artifacts or project-scoped source entities. For existing registry
    projects, shared-resource tagging is source-linked. For a newly added
    canonical project, shared-resource tagging uses the default seven-day
    lookback. For project-specific resources, tagging is project-linked.
-6. Confirm the report project tag exists and is active.
-7. Validate tagged logs.
-8. Extract tagged evidence records.
-9. Filter evidence to the project and report window.
-10. Current skeleton: write private placeholder report.
-11. Future: run `project-state-synthesizer`, then `state-report-writer`, then
+7. Confirm the report project tag exists and is active.
+8. Validate tagged logs.
+9. Extract tagged evidence records.
+10. Filter evidence to the project and report window.
+11. Current skeleton: write private placeholder report.
+12. Future: run `project-state-synthesizer`, then `state-report-writer`, then
     PDF rendering.
-12. Write manifest.
-13. Advance fetch cursors after successful source fetches; advance tagging
+13. Write manifest.
+14. Advance resource-discovery cursors after successful discovery; advance fetch
+    cursors after successful source fetches; advance tagging
     cursors after successful tagging for their selected candidate set; advance
     report cursor only when the report stage succeeds.
 
@@ -94,6 +103,8 @@ Future concepts:
 - If a source reader is not implemented, mark it `skipped`; do not pretend it
   was checked.
 - If source coverage gaps exist, record them in the data-fetch manifest.
+- If resource discovery finds uncertain project-linked candidates, keep them out
+  of canonical evidence, write review items, and include them in the report.
 - If tagging is required, stop report generation before validation/extraction
   until the cursor-selected tagging worklist is current.
 - If validation fails, stop before extraction/reporting.
@@ -108,6 +119,7 @@ Current private outputs:
 logs/runs/<run-id>/manifest.json
 data/reports/<Project-tag>/<YYYY-MM-DD>/<run-id>_state-of-project.md
 data/derived/tagged-notes.jsonl
+data/derived/review/project-resource-candidates.jsonl
 ```
 
 Future canonical outputs:
@@ -127,6 +139,8 @@ data/reports/<Project-tag>/<YYYY-MM-DD>/<run-id>_state-of-project.pdf
 - Do not fetch shared datasources once per project report.
 - Do not let a global source cursor cause a newly added project to miss its
   default initial window for project-specific resources.
+- Do not silently auto-link project resources unless the source-family policy
+  allows high-confidence auto-linking and the manifest records why.
 - Do not create tickets, send emails, post messages, update deployments, or push
   code from this workflow.
 - Do not commit private runtime artifacts.

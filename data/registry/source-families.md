@@ -18,6 +18,8 @@ filesystem contract can describe them. Source-family metadata records:
 - cursor scope, cursor ownership, and lookback policy
 - stable source entity key, when the source is naturally split into repos,
   projects, folders, threads, environments, or similar objects
+- project-resource discovery behavior for source families that can reveal new
+  project-linked repos, deployments, environments, folders, or docs
 - what the source is canonical for
 - what the source is not canonical for
 - privacy and redaction rules
@@ -84,6 +86,40 @@ per-source-log proof of currency. The long-term contract is that cursor policy
 chooses the candidate set, and tagged metadata proves whether each candidate is
 current.
 
+## Project Resource Discovery
+
+Project-linked sources need a nightly discovery/reconciliation step before
+their fetch/tag cursors run. The system should cast a wide net across source
+inventories such as GitHub repositories, Vercel projects, Railway projects,
+deployment environments, and later Drive/Notion project areas to find resources
+that may belong to the named project.
+
+Discovery uses the confirmed project profile as the query context: aliases,
+strong signals, domains, repos, deployment names, product terms, client terms,
+and source-specific identifiers. It should not rely on weak people-only
+matches.
+
+Candidate outcomes:
+
+- high-confidence resource: add to the local project-linked resource list with
+  source id, source reference, confidence, reason, and matched signals, then use
+  the project-linked fetch/tag cursors for that source entity
+- uncertain resource: write a review item, include it in the state report, and
+  do not treat it as canonical project evidence until reviewed
+- rejected or unrelated resource: keep enough audit detail in the run manifest
+  to explain that it was considered, without polluting the project profile
+
+This is a local Project Intel registry/profile mutation, not an external write
+to GitHub, Vercel, Railway, or another provider. High-confidence auto-linking
+must be governed by explicit source-family policy; otherwise candidates should
+go to review.
+
+The target project profile field is `project_linked_resources`. The current
+GitHub reader still supports legacy `strong_signals.repos`, but future resource
+discovery should write richer resource records under
+`project_linked_resources` so confidence, source references, matched signals,
+and review decisions are auditable.
+
 ## Reader Status
 
 Use these values:
@@ -113,6 +149,10 @@ project profiles from `data/registry/project-tags.yaml` as discovery signals and
 reader settings from `source-families.yaml`; generic reader code must not
 hardcode a project name, repo, email subject, account, or keyword.
 
+GitHub currently fetches repos already listed in project profiles. The nightly
+wide-net repository discovery step is planned. Deployment resource discovery
+across Vercel/Railway/provider environments is also planned.
+
 Fireflies still has only single-transcript fetch support. Drive and deployment
 readers are planned. Skipped sources must remain visible in run manifests and
 reports as source coverage gaps.
@@ -131,6 +171,9 @@ reports as source coverage gaps.
   Vercel projects, or Notion spaces should use project-linked fetch cursors so a
   newly added project gets its own initial window instead of inheriting an old
   global source cursor.
+- Before project-linked fetch/tag work, source families with resource discovery
+  enabled should reconcile the known project-linked resource list against
+  provider inventory.
 - Project-linked source cursors should still reuse stable source entity
   identities and cursor `seen_keys` so the same entity is not fetched or tagged
   repeatedly for multiple reports.

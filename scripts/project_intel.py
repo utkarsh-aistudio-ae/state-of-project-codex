@@ -727,6 +727,23 @@ def string_list(value: Any) -> list[str]:
     return items
 
 
+def resource_id_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    items: list[str] = []
+    for item in value:
+        if isinstance(item, dict):
+            raw = item.get("id") or item.get("repo") or item.get("name")
+        else:
+            raw = item
+        if raw is None:
+            continue
+        text = str(raw).strip()
+        if text:
+            items.append(text)
+    return items
+
+
 def safe_slug(value: str, fallback: str = "item", max_length: int = 120) -> str:
     slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip(".-_")
     if not slug:
@@ -813,7 +830,12 @@ def github_repo_api_path(repo: str, suffix: str) -> str:
 
 def project_repos(profile: dict[str, Any]) -> list[str]:
     signals = nested_dict(profile, "strong_signals")
-    repos = string_list(signals.get("repos"))
+    resources = nested_dict(profile, "project_linked_resources")
+    repos = [
+        *string_list(signals.get("repos")),
+        *resource_id_list(resources.get("github_repos")),
+        *resource_id_list(nested_dict(resources, "github").get("repos")),
+    ]
     valid: list[str] = []
     seen: set[str] = set()
     for repo in repos:

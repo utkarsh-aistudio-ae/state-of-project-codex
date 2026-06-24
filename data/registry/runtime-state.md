@@ -21,6 +21,7 @@ Fetch cursors, tagging cursors, and per-project report cursors live under
 private runtime state:
 
 ```text
+state/cursors/resource-discovery/projects/<Project-tag>/<Source>.json
 state/cursors/data-fetch/sources/<Source>.json
 state/cursors/data-fetch/projects/<Project-tag>/<Source>.json
 state/cursors/tagging/sources/<Source>.json
@@ -45,6 +46,9 @@ cursor ownership by source family and project context.
   environments, or client-specific Drive folders. Those use project-linked
   fetch cursors so a newly added project gets its own initial fetch window
   instead of inheriting an old global source cursor.
+- Before project-linked fetch cursors run, project-resource discovery cursors
+  can scan provider inventory for new repos, deployments, environments, folders,
+  or similar source entities that may belong to the project.
 - Project-linked fetch cursors should still maintain stable source entity keys
   and `seen_keys` so readers can reuse an already-seen untouched source-log path
   instead of creating duplicate files and duplicate tagging work.
@@ -101,6 +105,26 @@ Example project-linked fetch cursor:
 }
 ```
 
+Example project-resource discovery cursor:
+
+```json
+{
+  "scope": "resource-discovery",
+  "source": "GitHub",
+  "project": "Argos-ddt",
+  "last_successful_discovery_at": "2026-06-23T00:00:00Z",
+  "inventory_cursor": "provider-specific-page-or-timestamp",
+  "seen_candidate_keys": {
+    "aistudioae/argos-ddt-prod": {
+      "source_entity_id": "aistudioae/argos-ddt-prod",
+      "decision": "linked",
+      "confidence": "high",
+      "seen_at": "2026-06-23T20:00:00Z"
+    }
+  }
+}
+```
+
 Example project-linked tagging cursor for a newly added project:
 
 ```json
@@ -137,6 +161,17 @@ If a source has no cursor yet, use the previous seven days as the initial
 window. If a project-linked source cursor has no cursor for that project, use
 the previous seven days even when another project has already fetched the same
 source family.
+
+For project-resource discovery:
+
+```text
+discovery_start = last_successful_discovery_at - lookback_overlap
+discovery_end = run_started_at
+```
+
+Discovery may also use provider inventory pagination cursors when timestamp
+windows are not enough. The result is not source evidence by itself; it is a
+project-resource reconciliation signal.
 
 For reports:
 
@@ -195,6 +230,27 @@ Prepared tagged files use `tag_status: "prepared"` and remain in the derived
 worklist as `needs_tagging` until Codex adds canonical annotations and reruns the
 deterministic tag metadata command.
 
+## Project Resource Candidates
+
+Nightly discovery for project-linked sources may find resources not yet listed
+in the project profile.
+
+High-confidence candidates may be added to the local project-linked resource
+list when source-family policy allows auto-linking. The run manifest must record
+the resource id, source reference, matched signals, confidence, reason, and the
+profile/registry update performed.
+
+Uncertain candidates must be written to private review state and surfaced in
+the project report:
+
+```text
+data/derived/review/project-resource-candidates.jsonl
+```
+
+Uncertain candidates are not canonical evidence, should not create timeline
+entries or tickets, and should not cause project-linked fetch/tag cursors to run
+as if the resource were confirmed.
+
 ## Reports
 
 Generated reports are private runtime artifacts:
@@ -215,6 +271,7 @@ logs/runs/<run-id>/manifest.json
 ```
 
 The manifest records scope, project when applicable, windows, source fetch
-status, tagging worklist status, validation, extraction, report path, cursor
-updates, source status counts, trigger source, start/end timestamps, duration,
-mutation flag, external delivery flag, warnings, and errors.
+status, resource discovery status, tagging worklist status, validation,
+extraction, report path, cursor updates, source status counts, trigger source,
+start/end timestamps, duration, mutation flag, external delivery flag, warnings,
+and errors.

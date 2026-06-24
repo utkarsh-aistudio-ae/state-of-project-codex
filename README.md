@@ -119,6 +119,12 @@ project-linked cursors handle project-specific resources; newly added projects
 get a default seven-day shared-resource tagging window. Project reports should
 not cause duplicate fetches or duplicate tagging passes.
 
+For project-linked sources, the long-term nightly orchestration includes
+resource discovery across provider inventories such as GitHub, Vercel, Railway,
+Drive, and Notion. High-confidence discovered resources can be added to the
+local project-linked resource list with evidence when policy allows it.
+Uncertain candidates go to review and should be mentioned in the report.
+
 The current orchestration recipe is:
 
 ```text
