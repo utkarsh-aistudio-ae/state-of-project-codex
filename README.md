@@ -67,8 +67,9 @@ python3 scripts/project_intel.py queue
 ```
 
 The `queue` command is a derived filesystem worklist, not a durable queue. It is
-computed from untouched files, tagged files, source hashes, registry hash, and
-tagger metadata.
+computed from untouched files, tagged files, source hashes, semantic registry
+state, and tagger metadata. The whole registry hash is retained as a legacy/audit
+field, but it is not the only driver of `stale_registry`.
 
 The tagger, not the reader, creates or updates matching files under
 `data/raw/tagged/`. The deterministic helper for preparing or finalizing a

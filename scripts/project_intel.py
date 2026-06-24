@@ -39,7 +39,9 @@ UTC = timezone.utc
 ANNOTATION_RE = re.compile(r"^\[([?]?[A-Za-z0-9-]+)\] \{([^}]*)\}$")
 POSSIBLE_ANNOTATION_RE = re.compile(r"^\[[^\]]+\]\s*\{.*\}$")
 ALLOWED_TAG_STATUSES = {"prepared", "tagged", "needs_review", "failed"}
-TAGGER_VERSION = "project-intel-v1"
+TAGGER_VERSION = "project-intel-v2"
+REGISTRY_STATE_VERSION = 2
+NEW_PROJECT_SHARED_LOOKBACK_DAYS = 7
 GITHUB_SOURCE = "GitHub"
 GMAIL_SOURCE = "Gmail"
 
@@ -70,6 +72,9 @@ class ProjectRegistry:
     special_tags: set[str]
     exact_untagged: str
     profiles: dict[str, dict[str, Any]]
+    project_profile_hashes: dict[str, str]
+    special_tag_hashes: dict[str, str]
+    active_project_tags_hash: str
 
 
 @dataclass(frozen=True)
@@ -89,6 +94,16 @@ class FrontmatterDocument:
     metadata: dict[str, Any]
     body: str
     had_frontmatter: bool
+
+
+@dataclass(frozen=True)
+class AnnotationState:
+    annotation_count: int
+    uncertain_count: int
+    projects: set[str]
+    uncertain_projects: set[str]
+    special_tags: set[str]
+    errors: list[dict[str, Any]]
 
 
 def utc_now() -> datetime:
@@ -225,6 +240,8 @@ def load_project_registry() -> ProjectRegistry:
     project_tags: set[str] = set()
     special_tags: set[str] = set()
     profiles: dict[str, dict[str, Any]] = {}
+    project_profile_hashes: dict[str, str] = {}
+    special_tag_hashes: dict[str, str] = {}
     exact_untagged = "[untagged] {Personal/admin context, not relevant to any AiStudio projects}"
 
     try:
@@ -247,10 +264,18 @@ def load_project_registry() -> ProjectRegistry:
         if kind == "project":
             project_tags.add(tag)
             profiles[tag] = dict(entry)
+            project_profile_hashes[tag] = json_hash(entry)
         elif kind == "special":
             special_tags.add(tag)
+            special_tag_hashes[tag] = json_hash(entry)
         if tag == "untagged" and isinstance(entry.get("exact_annotation"), str):
             exact_untagged = entry["exact_annotation"]
+
+    active_tags = sorted(
+        str(profile.get("tag"))
+        for profile in profiles.values()
+        if profile.get("status") in {None, "active"} and profile.get("tag")
+    )
 
     return ProjectRegistry(
         hash=registry_hash(),
@@ -259,6 +284,9 @@ def load_project_registry() -> ProjectRegistry:
         special_tags=special_tags,
         exact_untagged=exact_untagged,
         profiles=profiles,
+        project_profile_hashes=project_profile_hashes,
+        special_tag_hashes=special_tag_hashes,
+        active_project_tags_hash=json_hash(active_tags),
     )
 
 
@@ -1897,13 +1925,277 @@ def parse_int(value: str | None) -> int:
         return 0
 
 
+def string_set(value: Any) -> set[str]:
+    return set(string_list(value))
+
+
+def dict_string_values(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    items: dict[str, str] = {}
+    for key, item in value.items():
+        if isinstance(key, str) and isinstance(item, str):
+            items[key] = item
+    return items
+
+
+def source_family_or_empty(source: Any) -> dict[str, Any]:
+    if not isinstance(source, str) or not source.strip():
+        return {}
+    for family in load_source_families():
+        if family.get("name") == source:
+            return family
+    return {}
+
+
+def source_tagging_cursor_owner(source_metadata: dict[str, Any]) -> str:
+    family = source_family_or_empty(source_metadata.get("source"))
+    owner = family.get("tagging_cursor_owner")
+    if isinstance(owner, str) and owner.strip():
+        return owner.strip()
+    scope = family.get("cursor_scope")
+    if scope == "shared_source":
+        return "source_linked"
+    if scope == "source_entity":
+        return "project_linked"
+    if scope == "mixed_source":
+        return "source_or_project_linked_by_entity"
+    return "unknown"
+
+
+def source_project_candidates(metadata: dict[str, Any], registry: ProjectRegistry) -> set[str]:
+    fetch_context = metadata.get("fetch_context")
+    if not isinstance(fetch_context, dict):
+        return set()
+    return {
+        project
+        for project in string_list(fetch_context.get("project_candidates"))
+        if project in registry.project_tags
+    }
+
+
+def manual_retag_projects(*metadata_items: dict[str, Any]) -> set[str]:
+    projects: set[str] = set()
+    for metadata in metadata_items:
+        for key in ["manual_retag_projects", "retag_projects"]:
+            projects.update(string_list(metadata.get(key)))
+    return projects
+
+
+def relevant_registry_projects(
+    source_metadata: dict[str, Any],
+    tagged_metadata: dict[str, Any],
+    annotation_state: AnnotationState,
+    registry: ProjectRegistry,
+) -> set[str]:
+    projects = set(annotation_state.projects)
+    projects.update(annotation_state.uncertain_projects)
+    projects.update(source_project_candidates(source_metadata, registry))
+    projects.update(manual_retag_projects(source_metadata, tagged_metadata))
+    return {project for project in projects if project in registry.project_tags}
+
+
+def registry_state_metadata(
+    registry: ProjectRegistry,
+    source_metadata: dict[str, Any],
+    tagged_metadata: dict[str, Any],
+    annotation_state: AnnotationState,
+) -> dict[str, Any]:
+    relevant_projects = sorted(
+        relevant_registry_projects(source_metadata, tagged_metadata, annotation_state, registry)
+    )
+    relevant_specials = sorted(
+        tag for tag in annotation_state.special_tags if tag in registry.special_tags
+    )
+    return {
+        "registry_state_version": REGISTRY_STATE_VERSION,
+        "registry_active_project_tags": active_project_tags(registry),
+        "registry_active_project_tags_hash": registry.active_project_tags_hash,
+        "registry_relevant_project_hashes": {
+            project: registry.project_profile_hashes[project]
+            for project in relevant_projects
+            if project in registry.project_profile_hashes
+        },
+        "registry_relevant_special_hashes": {
+            tag: registry.special_tag_hashes[tag]
+            for tag in relevant_specials
+            if tag in registry.special_tag_hashes
+        },
+        "registry_annotation_projects": sorted(annotation_state.projects),
+        "registry_uncertain_projects": sorted(annotation_state.uncertain_projects),
+        "registry_source_candidate_projects": sorted(source_project_candidates(source_metadata, registry)),
+    }
+
+
+def source_occurred_at(metadata: dict[str, Any]) -> datetime | None:
+    value = metadata.get("occurred_at")
+    return parse_iso_datetime(value) if isinstance(value, str) else None
+
+
+def source_within_default_new_project_window(metadata: dict[str, Any], now: datetime) -> bool:
+    occurred_at = source_occurred_at(metadata)
+    if not occurred_at:
+        return False
+    return occurred_at >= now - timedelta(days=NEW_PROJECT_SHARED_LOOKBACK_DAYS)
+
+
+def registry_cursor_evaluation(
+    source_metadata: dict[str, Any],
+    tagged_metadata: dict[str, Any],
+    annotation_state: AnnotationState,
+    registry: ProjectRegistry,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    now = now or utc_now()
+    owner = source_tagging_cursor_owner(source_metadata)
+    relevant_projects = relevant_registry_projects(source_metadata, tagged_metadata, annotation_state, registry)
+    manual_projects = {
+        project for project in manual_retag_projects(source_metadata, tagged_metadata)
+        if project in registry.project_tags
+    }
+
+    result: dict[str, Any] = {
+        "registry_state_version": tagged_metadata.get("registry_state_version"),
+        "tagging_cursor_owner": owner,
+        "registry_change_type": "none",
+        "registry_cursor_status": "current",
+        "registry_work_required": False,
+        "relevant_projects": sorted(relevant_projects),
+        "annotation_projects": sorted(annotation_state.projects),
+        "uncertain_projects": sorted(annotation_state.uncertain_projects),
+        "source_candidate_projects": sorted(source_project_candidates(source_metadata, registry)),
+        "manual_retag_projects": sorted(manual_projects),
+        "new_projects": [],
+        "changed_projects": [],
+        "changed_special_tags": [],
+        "reason": "semantic registry state matches relevant projects and cursor policy",
+    }
+
+    if manual_projects:
+        result.update({
+            "registry_change_type": "manual_retag",
+            "registry_cursor_status": "stale",
+            "registry_work_required": True,
+            "changed_projects": sorted(manual_projects),
+            "reason": "manual retag project selection is present",
+        })
+        return result
+
+    if tagged_metadata.get("registry_state_version") != REGISTRY_STATE_VERSION:
+        legacy_hash = tagged_metadata.get("registry_hash")
+        result["registry_cursor_status"] = "legacy_current" if legacy_hash == registry.hash else "legacy_unscoped"
+        result["registry_change_type"] = "legacy_registry_metadata"
+        result["reason"] = (
+            "legacy tagged metadata has no semantic registry cursor; "
+            "whole-registry hash is kept only for backward-compatible audit"
+        )
+        return result
+
+    stored_project_hashes = dict_string_values(tagged_metadata.get("registry_relevant_project_hashes"))
+    stored_special_hashes = dict_string_values(tagged_metadata.get("registry_relevant_special_hashes"))
+    stored_active_projects = string_set(tagged_metadata.get("registry_active_project_tags"))
+    current_active_projects = set(active_project_tags(registry))
+    new_projects = sorted(current_active_projects - stored_active_projects)
+
+    missing_relevant_state = sorted(relevant_projects - set(stored_project_hashes) - set(new_projects))
+    if missing_relevant_state:
+        result.update({
+            "registry_change_type": "missing_project_registry_state",
+            "registry_cursor_status": "stale",
+            "registry_work_required": True,
+            "changed_projects": missing_relevant_state,
+            "reason": "tagged metadata is missing semantic hashes for relevant projects",
+        })
+        return result
+
+    removed_projects = sorted(
+        project for project in stored_project_hashes
+        if project not in registry.project_profile_hashes
+    )
+    if removed_projects:
+        result.update({
+            "registry_change_type": "project_removed_or_inactive",
+            "registry_cursor_status": "stale",
+            "registry_work_required": True,
+            "changed_projects": removed_projects,
+            "reason": "a project referenced by tagged metadata is no longer active in the registry",
+        })
+        return result
+
+    changed_projects = sorted(
+        project
+        for project, old_hash in stored_project_hashes.items()
+        if registry.project_profile_hashes.get(project) != old_hash
+    )
+    if changed_projects:
+        result.update({
+            "registry_change_type": "project_profile_changed",
+            "registry_cursor_status": "stale",
+            "registry_work_required": True,
+            "changed_projects": changed_projects,
+            "reason": "one or more relevant project profiles changed since tagging",
+        })
+        return result
+
+    changed_specials = sorted(
+        tag
+        for tag, old_hash in stored_special_hashes.items()
+        if registry.special_tag_hashes.get(tag) != old_hash
+    )
+    if changed_specials:
+        result.update({
+            "registry_change_type": "special_tag_changed",
+            "registry_cursor_status": "stale",
+            "registry_work_required": True,
+            "changed_special_tags": changed_specials,
+            "reason": "one or more special tags used by this file changed since tagging",
+        })
+        return result
+
+    eligible_new_projects: list[str] = []
+    if new_projects:
+        if owner == "source_linked":
+            if source_within_default_new_project_window(source_metadata, now):
+                eligible_new_projects = new_projects
+        elif owner == "project_linked":
+            eligible_new_projects = sorted(set(new_projects) & source_project_candidates(source_metadata, registry))
+        elif owner == "source_or_project_linked_by_entity":
+            if source_project_candidates(source_metadata, registry):
+                eligible_new_projects = sorted(set(new_projects) & source_project_candidates(source_metadata, registry))
+            elif source_within_default_new_project_window(source_metadata, now):
+                eligible_new_projects = new_projects
+
+    if eligible_new_projects:
+        result.update({
+            "registry_change_type": "new_project_added",
+            "registry_cursor_status": "stale",
+            "registry_work_required": True,
+            "new_projects": eligible_new_projects,
+            "reason": "new canonical project added and this source is inside the tagging cursor window",
+        })
+        return result
+
+    if new_projects:
+        result.update({
+            "registry_change_type": "new_project_added_outside_cursor",
+            "new_projects": new_projects,
+            "reason": "new canonical project added, but this source is outside the default tagging cursor",
+        })
+    return result
+
+
 def finalize_queue_item(item: dict[str, Any]) -> dict[str, Any]:
     item["work_required"] = item.get("status") != "current"
     item["work_type"] = "tagging" if item["work_required"] else "none"
     return item
 
 
-def queue_item_for_untouched(untouched_path: Path, current_registry_hash: str | None) -> dict[str, Any]:
+def queue_item_for_untouched(
+    untouched_path: Path,
+    registry: ProjectRegistry,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    now = now or utc_now()
     source_metadata = read_frontmatter(untouched_path)
     source_hash = source_metadata.get("content_hash")
     tagged_path = tagged_path_for_untouched(untouched_path)
@@ -1911,7 +2203,9 @@ def queue_item_for_untouched(untouched_path: Path, current_registry_hash: str | 
         "source_file": ensure_relative(untouched_path),
         "tagged_file": ensure_relative(tagged_path),
         "source_content_hash": source_hash,
-        "registry_hash": current_registry_hash,
+        "registry_hash": registry.hash,
+        "registry_state_version": REGISTRY_STATE_VERSION,
+        "registry_active_project_tags_hash": registry.active_project_tags_hash,
     }
 
     if not tagged_path.exists():
@@ -1919,14 +2213,30 @@ def queue_item_for_untouched(untouched_path: Path, current_registry_hash: str | 
         item["reason"] = "tagged file does not exist"
         return finalize_queue_item(item)
 
-    tagged_metadata = read_frontmatter(tagged_path)
+    tagged_text = tagged_path.read_text(encoding="utf-8")
+    tagged_doc = split_frontmatter_text(tagged_text)
+    tagged_metadata = dict(tagged_doc.metadata)
+    annotation_state = annotation_state_for_text(tagged_doc.body, registry)
+    registry_cursor = registry_cursor_evaluation(
+        source_metadata,
+        tagged_metadata,
+        annotation_state,
+        registry,
+        now=now,
+    )
     item["tag_status"] = tagged_metadata.get("tag_status")
     item["tagged_source_content_hash"] = tagged_metadata.get("source_content_hash")
     item["tagged_registry_hash"] = tagged_metadata.get("registry_hash")
+    item["tagged_registry_state_version"] = tagged_metadata.get("registry_state_version")
+    item["tagged_registry_active_project_tags_hash"] = tagged_metadata.get("registry_active_project_tags_hash")
     item["uncertain_annotation_count"] = parse_int(tagged_metadata.get("uncertain_annotation_count"))
     item["annotation_count"] = parse_int(tagged_metadata.get("annotation_count"))
+    item["registry_cursor"] = registry_cursor
 
-    if not tagged_metadata.get("source_content_hash") or not tagged_metadata.get("registry_hash"):
+    if annotation_state.errors:
+        item["status"] = "stale_registry"
+        item["reason"] = "tagged annotations are invalid under the current registry"
+    elif not tagged_metadata.get("source_content_hash") or not tagged_metadata.get("registry_hash"):
         item["status"] = "stale_metadata"
         item["reason"] = "tagged file missing tagger metadata"
     elif tagged_metadata.get("tag_status") == "prepared":
@@ -1935,9 +2245,9 @@ def queue_item_for_untouched(untouched_path: Path, current_registry_hash: str | 
     elif tagged_metadata.get("source_content_hash") != source_hash:
         item["status"] = "stale_source"
         item["reason"] = "untouched source content hash changed"
-    elif current_registry_hash and tagged_metadata.get("registry_hash") != current_registry_hash:
+    elif registry_cursor.get("registry_work_required"):
         item["status"] = "stale_registry"
-        item["reason"] = "project registry changed since tagging"
+        item["reason"] = registry_cursor.get("reason") or "semantic registry state changed since tagging"
     elif tagged_metadata.get("tag_status") in {"needs_review", "failed"}:
         item["status"] = tagged_metadata.get("tag_status")
         item["reason"] = "tagger marked file for attention"
@@ -1955,9 +2265,10 @@ def queue_item_for_untouched(untouched_path: Path, current_registry_hash: str | 
 
 def build_queue_payload() -> dict[str, Any]:
     untouched_root = ROOT / "data" / "raw" / "untouched"
-    current_registry_hash = registry_hash()
+    registry = load_project_registry()
+    now = utc_now()
     items = [
-        queue_item_for_untouched(path, current_registry_hash)
+        queue_item_for_untouched(path, registry, now=now)
         for path in sorted(untouched_root.rglob("*.md"))
     ] if untouched_root.exists() else []
 
@@ -1966,7 +2277,9 @@ def build_queue_payload() -> dict[str, Any]:
         counts[item["status"]] = counts.get(item["status"], 0) + 1
 
     payload = {
-        "registry_hash": current_registry_hash,
+        "registry_hash": registry.hash,
+        "registry_state_version": REGISTRY_STATE_VERSION,
+        "registry_active_project_tags_hash": registry.active_project_tags_hash,
         "total": len(items),
         "counts": counts,
         "items": items,
@@ -2001,9 +2314,12 @@ def resolve_path_argument(path_value: str) -> Path:
     return candidate.resolve()
 
 
-def annotation_summary_for_text(text: str, registry: ProjectRegistry) -> tuple[int, int, list[dict[str, Any]]]:
+def annotation_state_for_text(text: str, registry: ProjectRegistry) -> AnnotationState:
     annotation_count = 0
     uncertain_count = 0
+    projects: set[str] = set()
+    uncertain_projects: set[str] = set()
+    special_tags: set[str] = set()
     errors: list[dict[str, Any]] = []
     for line_number, line in enumerate(text.splitlines(), start=1):
         annotation, line_errors = validate_annotation_line(line, line_number, registry)
@@ -2012,7 +2328,27 @@ def annotation_summary_for_text(text: str, registry: ProjectRegistry) -> tuple[i
             annotation_count += 1
             if annotation.get("uncertain"):
                 uncertain_count += 1
-    return annotation_count, uncertain_count, errors
+            project = annotation.get("project")
+            if isinstance(project, str):
+                if annotation.get("special"):
+                    special_tags.add(project)
+                elif project in registry.project_tags:
+                    projects.add(project)
+                    if annotation.get("uncertain"):
+                        uncertain_projects.add(project)
+    return AnnotationState(
+        annotation_count=annotation_count,
+        uncertain_count=uncertain_count,
+        projects=projects,
+        uncertain_projects=uncertain_projects,
+        special_tags=special_tags,
+        errors=errors,
+    )
+
+
+def annotation_summary_for_text(text: str, registry: ProjectRegistry) -> tuple[int, int, list[dict[str, Any]]]:
+    state = annotation_state_for_text(text, registry)
+    return state.annotation_count, state.uncertain_count, state.errors
 
 
 def infer_tag_status(annotation_count: int, uncertain_count: int) -> str:
@@ -2055,25 +2391,26 @@ def tag(args: argparse.Namespace) -> int:
     else:
         body = source_doc.body
 
-    annotation_count, uncertain_count, annotation_errors = annotation_summary_for_text(body, registry)
-    if annotation_errors:
+    annotation_state = annotation_state_for_text(body, registry)
+    if annotation_state.errors:
         print("Tag command found invalid annotation syntax or noncanonical tags.", file=sys.stderr)
-        for error in annotation_errors[:20]:
+        for error in annotation_state.errors[:20]:
             print(f"- line {error['line']}: {error['code']} - {error['message']}", file=sys.stderr)
-        if len(annotation_errors) > 20:
-            print(f"- additional errors: {len(annotation_errors) - 20}", file=sys.stderr)
+        if len(annotation_state.errors) > 20:
+            print(f"- additional errors: {len(annotation_state.errors) - 20}", file=sys.stderr)
         return 1
 
-    tag_status = infer_tag_status(annotation_count, uncertain_count)
+    tag_status = infer_tag_status(annotation_state.annotation_count, annotation_state.uncertain_count)
     updates = {
         "source_content_hash": source_hash,
         "tag_status": tag_status,
         "tagger": "codex",
         "tagger_version": TAGGER_VERSION,
         "registry_hash": registry.hash,
-        "annotation_count": annotation_count,
-        "uncertain_annotation_count": uncertain_count,
+        "annotation_count": annotation_state.annotation_count,
+        "uncertain_annotation_count": annotation_state.uncertain_count,
     }
+    updates.update(registry_state_metadata(registry, source_metadata, existing_metadata, annotation_state))
     stable = all(existing_metadata.get(key) == value for key, value in updates.items())
     updates["tagged_at"] = existing_metadata.get("tagged_at") if stable and existing_metadata.get("tagged_at") else iso(utc_now())
 
@@ -2084,8 +2421,8 @@ def tag(args: argparse.Namespace) -> int:
 
     print(f"Tagged copy {result.status}: {ensure_relative(tagged_path)}")
     print(f"- tag_status: {tag_status}")
-    print(f"- annotations: {annotation_count}")
-    print(f"- uncertain: {uncertain_count}")
+    print(f"- annotations: {annotation_state.annotation_count}")
+    print(f"- uncertain: {annotation_state.uncertain_count}")
     if tag_status == "prepared":
         print("- next: add canonical annotations, then rerun this command")
     return 0
@@ -2167,7 +2504,9 @@ def validate_annotation_line(
 
 
 def validate_tagged_file(path: Path, registry: ProjectRegistry) -> dict[str, Any]:
-    metadata = read_frontmatter(path)
+    text = path.read_text(encoding="utf-8") if path.exists() else ""
+    tagged_doc = split_frontmatter_text(text)
+    metadata = dict(tagged_doc.metadata)
     errors: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
 
@@ -2220,22 +2559,32 @@ def validate_tagged_file(path: Path, registry: ProjectRegistry) -> dict[str, Any
                     "code": "stale_source_content_hash",
                     "message": "Tagged source_content_hash does not match untouched content_hash.",
                 })
-    if registry.hash and metadata.get("registry_hash") and metadata.get("registry_hash") != registry.hash:
+    annotation_state = annotation_state_for_text(text, registry)
+    errors.extend(annotation_state.errors)
+    annotation_count = annotation_state.annotation_count
+    uncertain_count = annotation_state.uncertain_count
+
+    source_metadata = metadata
+    if untouched_path and untouched_path.exists():
+        source_metadata = read_frontmatter(untouched_path)
+    registry_cursor = registry_cursor_evaluation(
+        source_metadata,
+        metadata,
+        annotation_state,
+        registry,
+    )
+    if registry_cursor.get("registry_work_required"):
         warnings.append({
             "line": 1,
-            "code": "stale_registry_hash",
-            "message": "Tagged registry_hash does not match current project registry.",
+            "code": "stale_registry_semantic_state",
+            "message": str(registry_cursor.get("reason") or "Semantic registry state changed since tagging."),
         })
-
-    annotation_count = 0
-    uncertain_count = 0
-    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-        annotation, line_errors = validate_annotation_line(line, line_number, registry)
-        errors.extend(line_errors)
-        if annotation:
-            annotation_count += 1
-            if annotation.get("uncertain"):
-                uncertain_count += 1
+    elif registry_cursor.get("registry_cursor_status") == "legacy_unscoped":
+        warnings.append({
+            "line": 1,
+            "code": "legacy_registry_metadata",
+            "message": "Tagged file has only legacy whole-registry metadata; semantic registry drift cannot be inferred.",
+        })
 
     if annotation_count == 0:
         warnings.append({

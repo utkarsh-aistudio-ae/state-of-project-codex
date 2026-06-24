@@ -31,7 +31,7 @@ each candidate source log.
    worklist. This command does not read or write a durable queue.
    - Process only items where `work_required: true`.
    - Skip `current` items; they already match the source content hash and
-     registry hash.
+     relevant semantic registry state.
    - Retag `stale_source` items because the source artifact changed.
    - Retag `stale_registry` items because canonical project knowledge changed.
    - Process `needs_tagging` items because no current tagged copy exists.
@@ -64,10 +64,16 @@ each candidate source log.
 The effective per-file tagging cursor is the tagged file frontmatter:
 
 - `source_content_hash`
-- `registry_hash`
+- `registry_state_version`
+- `registry_active_project_tags`
+- `registry_relevant_project_hashes`
+- `registry_relevant_special_hashes`
 - `tag_status`
 - `annotation_count`
 - `uncertain_annotation_count`
+
+`registry_hash` is still kept as a legacy/audit field, but queue decisions must
+not rely only on the whole `project-tags.yaml` hash.
 
 Do not create duplicate tagged copies for repeated project reports. Do not
 retag a source log just because a project report is being generated. If `queue`
@@ -89,9 +95,17 @@ against. Add or update frontmatter fields like:
 source_content_hash: "sha256:..."
 tag_status: "tagged"
 tagger: "codex"
-tagger_version: "project-intel-v1"
+tagger_version: "project-intel-v2"
 tagged_at: "2026-06-23T00:00:00Z"
 registry_hash: "sha256:..."
+registry_state_version: 2
+registry_active_project_tags:
+  - "Argos-ddt"
+registry_active_project_tags_hash: "sha256:..."
+registry_relevant_project_hashes:
+  Argos-ddt: "sha256:..."
+registry_relevant_special_hashes:
+  untagged: "sha256:..."
 annotation_count: 0
 uncertain_annotation_count: 0
 ```

@@ -189,7 +189,7 @@ from:
 - `data/raw/untouched/...`
 - `data/raw/tagged/...`
 - source content hashes
-- registry hash
+- semantic registry state
 - tagged file metadata
 - validation state
 
@@ -209,7 +209,11 @@ skipped. Cursor policy chooses which artifacts/entities are candidates:
 The tagged file metadata remains the per-file proof of currency:
 
 - `source_content_hash`
-- `registry_hash`
+- `registry_state_version`
+- `registry_active_project_tags`
+- `registry_active_project_tags_hash`
+- `registry_relevant_project_hashes`
+- `registry_relevant_special_hashes`
 - `tag_status`
 - `annotation_count`
 - `uncertain_annotation_count`
@@ -220,11 +224,21 @@ changed, relevant registry state changed, a tagged copy is missing/prepared, or
 the tagger marked the file failed or in need of review. Project reports must not
 create duplicate tagging passes for artifacts that are already current.
 
-The current whole-file `project-tags.yaml` hash is an interim registry cursor.
-Long term, the registry layer should expose semantic changes such as
-`new_project_added`, `project_profile_changed`, and per-project profile
-versions, so new-project retagging does not force all historical tagged files
-stale.
+The whole-file `project-tags.yaml` hash is retained only as a legacy/audit
+field. Queue decisions use semantic registry state:
+
+- `new_project_added`: shared-source candidates are selected only inside the
+  default seven-day tagging window unless an explicit backfill is requested;
+  project-linked sources use project-linked candidates.
+- `project_profile_changed`: only files relevant to that project are stale,
+  including files tagged or uncertain for that project, source logs selected by
+  that project's cursor, or manually selected files.
+- `special_tag_changed`: only files using the changed special tag are stale.
+- unrelated registry metadata changes do not make all tagged files stale.
+
+Existing tagged files with only legacy `registry_hash` remain backward
+compatible. They are not forced stale solely because the whole registry hash
+changes; rerunning the tag command upgrades them to semantic registry metadata.
 
 Prepared tagged files use `tag_status: "prepared"` and remain in the derived
 worklist as `needs_tagging` until Codex adds canonical annotations and reruns the

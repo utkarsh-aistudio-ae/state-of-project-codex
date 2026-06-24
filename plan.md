@@ -97,8 +97,10 @@ source-linked cursors; project-specific resources use project-linked cursors.
 When a new canonical project is added, shared-resource tagging starts from the
 previous seven days by default. Readers use cursors and `seen_keys` to avoid
 duplicating already-seen artifacts/entities; tagging uses cursor-selected
-candidate sets, source hashes, registry state, and tagged metadata to process
-only source logs where work is actually required.
+candidate sets, source hashes, semantic registry state, and tagged metadata to
+process only source logs where work is actually required. The deterministic
+queue must not mark every tagged file stale just because the whole registry file
+hash changed.
 
 For project-linked sources, add a nightly resource-discovery/reconciliation
 stage before fetch/tag work. It should cast a wide net across provider
