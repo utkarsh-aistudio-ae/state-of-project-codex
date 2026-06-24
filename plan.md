@@ -1050,6 +1050,8 @@ Responsibilities:
 - consume confirmed extracted evidence records
 - include uncertain records only as review signals
 - infer chronology across sources
+- cluster repeated fetches, source recaps, overlapping repo snapshots, and
+  other derivative evidence before making event-level claims
 - identify decisions, commitments, blockers, risks, open questions, and shipped
   work
 - compare conversations, GitHub activity, deployments, and task state once those
@@ -1072,6 +1074,12 @@ Current command:
 python3 scripts/project_intel.py synthesize-project-state <Project-tag>
 ```
 
+Completion check:
+
+```bash
+python3 scripts/project_intel.py validate-synthesis data/projects/<Project-tag>/synthesis/<run-id>_synthesis.json
+```
+
 The deterministic command prepares private JSON/Markdown synthesis artifacts
 from validated extracted evidence. The `project-state-synthesizer` skill fills
 the reasoning fields. The command does not advance the report cursor and does
@@ -1087,6 +1095,8 @@ Acceptance criteria:
 - facts and inferences are clearly separated
 - uncertain records are not treated as confirmed state
 - self-evaluation is filled and does not hide source gaps or weak evidence
+- repeated records, recaps, and snapshots do not inflate event counts
+- completed artifacts pass `validate-synthesis`
 
 ## Phase 12: State Report Writer
 

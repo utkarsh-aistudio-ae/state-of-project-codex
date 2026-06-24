@@ -27,6 +27,8 @@ Responsibilities:
 - consume confirmed extracted evidence records
 - include uncertain records only as review signals
 - infer chronology across sources
+- cluster duplicate, overlapping, or derivative evidence into event-level
+  claims before writing chronology
 - identify decisions, commitments, blockers, risks, open questions, and shipped
   work
 - compare conversations, GitHub activity, deployments, and task state when
@@ -56,6 +58,16 @@ stale/missing/prepared/failed tagging work, but lets `needs_review` items
 through as review signals so Codex can surface uncertainty without treating it
 as fact. It scaffolds `self_evaluation` for Codex to fill during synthesis. It
 does not advance the report cursor.
+
+Completed synthesis artifacts should be checked with:
+
+```bash
+python3 scripts/project_intel.py validate-synthesis data/projects/<Project-tag>/synthesis/<run-id>_synthesis.json
+```
+
+The validator checks completion, self-evaluation scoring, evidence references,
+and whether uncertain evidence leaked into authoritative sections. It does not
+replace human/Codex judgment about whether the synthesis is insightful.
 
 Suggested output path:
 

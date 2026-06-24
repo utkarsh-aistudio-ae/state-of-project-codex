@@ -3303,6 +3303,200 @@ def render_synthesis_markdown(payload: dict[str, Any]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+SYNTHESIS_LIST_SECTIONS = (
+    "summary",
+    "chronology",
+    "shipped_work",
+    "decisions",
+    "commitments",
+    "blockers",
+    "risks",
+    "open_questions",
+    "source_conflicts",
+    "missing_evidence_caveats",
+    "review_signals",
+)
+AUTHORITATIVE_SYNTHESIS_SECTIONS = (
+    "summary",
+    "chronology",
+    "shipped_work",
+    "decisions",
+    "commitments",
+    "blockers",
+    "risks",
+    "open_questions",
+)
+SYNTHESIS_SCORE_VALUES = {"high", "medium", "low"}
+SELF_EVALUATION_SCORE_FIELDS = (
+    "overall_confidence",
+    "evidence_faithfulness",
+    "chronology_quality",
+    "cross_source_reasoning",
+    "uncertainty_handling",
+    "source_coverage_honesty",
+)
+
+
+def validate_synthesis_payload(payload: Any) -> dict[str, Any]:
+    report: dict[str, Any] = {
+        "status": "ok",
+        "errors": [],
+        "warnings": [],
+        "project": None,
+        "run_id": None,
+    }
+
+    def add_error(message: str) -> None:
+        report["errors"].append(message)
+
+    def add_warning(message: str) -> None:
+        report["warnings"].append(message)
+
+    if not isinstance(payload, dict):
+        add_error("Synthesis artifact must be a JSON object.")
+        report["status"] = "error"
+        return report
+
+    report["project"] = payload.get("project")
+    report["run_id"] = payload.get("run_id")
+    if payload.get("artifact_type") != "project_state_synthesis":
+        add_error("artifact_type must be project_state_synthesis.")
+    if payload.get("synthesis_status") != "synthesized":
+        add_error("synthesis_status must be synthesized after the reasoning pass.")
+
+    evidence = payload.get("evidence")
+    if not isinstance(evidence, dict):
+        add_error("evidence must be an object.")
+        evidence = {}
+    confirmed_records = evidence.get("confirmed_records", [])
+    uncertain_records = evidence.get("uncertain_records", [])
+    if not isinstance(confirmed_records, list):
+        add_error("evidence.confirmed_records must be a list.")
+        confirmed_records = []
+    if not isinstance(uncertain_records, list):
+        add_error("evidence.uncertain_records must be a list.")
+        uncertain_records = []
+
+    def record_ids(records: list[Any], label: str) -> set[str]:
+        ids: set[str] = set()
+        for index, record in enumerate(records):
+            if not isinstance(record, dict):
+                add_error(f"{label}[{index}] must be an object.")
+                continue
+            record_id = record.get("record_id")
+            if not isinstance(record_id, str) or not record_id:
+                add_error(f"{label}[{index}] is missing record_id.")
+                continue
+            if record_id in ids:
+                add_error(f"{label} contains duplicate record_id {record_id}.")
+            ids.add(record_id)
+        return ids
+
+    confirmed_ids = record_ids(confirmed_records, "confirmed_records")
+    uncertain_ids = record_ids(uncertain_records, "uncertain_records")
+    all_ids = confirmed_ids | uncertain_ids
+    overlapping_ids = confirmed_ids & uncertain_ids
+    for record_id in sorted(overlapping_ids):
+        add_error(f"record_id {record_id} appears as both confirmed and uncertain evidence.")
+
+    synthesis = payload.get("synthesis")
+    if not isinstance(synthesis, dict):
+        add_error("synthesis must be an object.")
+        synthesis = {}
+    confidence = synthesis.get("confidence")
+    if confidence not in SYNTHESIS_SCORE_VALUES:
+        add_error("synthesis.confidence must be high, medium, or low.")
+
+    for section in SYNTHESIS_LIST_SECTIONS:
+        value = synthesis.get(section)
+        if not isinstance(value, list):
+            add_error(f"synthesis.{section} must be a list.")
+            continue
+        for index, item in enumerate(value):
+            if not isinstance(item, dict):
+                add_error(f"synthesis.{section}[{index}] must be an object.")
+                continue
+            evidence_refs = item.get("evidence", [])
+            if evidence_refs is None:
+                evidence_refs = []
+            if not isinstance(evidence_refs, list):
+                add_error(f"synthesis.{section}[{index}].evidence must be a list when present.")
+                continue
+            if section in AUTHORITATIVE_SYNTHESIS_SECTIONS and not evidence_refs:
+                add_warning(f"synthesis.{section}[{index}] has no evidence references.")
+            for ref in evidence_refs:
+                if not isinstance(ref, str):
+                    add_error(f"synthesis.{section}[{index}] has a non-string evidence reference.")
+                    continue
+                if ref not in all_ids:
+                    add_error(f"synthesis.{section}[{index}] references unknown evidence id {ref}.")
+                if section in AUTHORITATIVE_SYNTHESIS_SECTIONS and ref in uncertain_ids:
+                    add_error(
+                        f"synthesis.{section}[{index}] uses uncertain evidence {ref} "
+                        "in an authoritative section."
+                    )
+
+    review_signals = synthesis.get("review_signals")
+    if isinstance(review_signals, list):
+        for index, item in enumerate(review_signals):
+            if not isinstance(item, dict):
+                continue
+            record_id = item.get("record_id")
+            if record_id and record_id not in uncertain_ids:
+                add_warning(
+                    f"synthesis.review_signals[{index}] references {record_id}, "
+                    "which is not in uncertain_records."
+                )
+
+    self_evaluation = payload.get("self_evaluation")
+    if not isinstance(self_evaluation, dict):
+        add_error("self_evaluation must be an object.")
+        self_evaluation = {}
+    for field in SELF_EVALUATION_SCORE_FIELDS:
+        if self_evaluation.get(field) not in SYNTHESIS_SCORE_VALUES:
+            add_error(f"self_evaluation.{field} must be high, medium, or low.")
+    for field in ("known_weaknesses", "needs_human_review"):
+        value = self_evaluation.get(field)
+        if not isinstance(value, list):
+            add_error(f"self_evaluation.{field} must be a list.")
+        elif not value:
+            add_warning(f"self_evaluation.{field} is empty.")
+
+    if report["errors"]:
+        report["status"] = "error"
+    return report
+
+
+def validate_synthesis(args: argparse.Namespace) -> int:
+    path = Path(args.path)
+    if not path.is_absolute():
+        path = ROOT / path
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        print(f"Synthesis artifact not found: {ensure_relative(path)}", file=sys.stderr)
+        return 1
+    except json.JSONDecodeError as exc:
+        print(f"Invalid synthesis JSON: {ensure_relative(path)}", file=sys.stderr)
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    report = validate_synthesis_payload(payload)
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(f"Synthesis validation status: {report['status']}")
+        print(f"- project: {report.get('project')}")
+        print(f"- run: {report.get('run_id')}")
+        print(f"- errors: {len(report['errors'])}")
+        print(f"- warnings: {len(report['warnings'])}")
+        for error in report["errors"]:
+            print(f"  error: {error}")
+        for warning in report["warnings"]:
+            print(f"  warning: {warning}")
+    return 0 if report["status"] == "ok" else 1
+
+
 def render_project_report(
     project: str,
     run_id: str,
@@ -3924,6 +4118,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     synthesize_project_state_parser.add_argument("project", help="Canonical project tag")
     synthesize_project_state_parser.set_defaults(func=synthesize_project_state)
+
+    validate_synthesis_parser = subparsers.add_parser(
+        "validate-synthesis",
+        help="Validate a completed project-state synthesis artifact",
+    )
+    validate_synthesis_parser.add_argument("path", help="Path to synthesis JSON artifact")
+    validate_synthesis_parser.add_argument("--json", action="store_true", help="Print validation report as JSON")
+    validate_synthesis_parser.set_defaults(func=validate_synthesis)
 
     run_project_parser = subparsers.add_parser("run-project", help="Deprecated: use run-data-fetch and run-state-report")
     run_project_parser.add_argument("project", help="Canonical project tag")

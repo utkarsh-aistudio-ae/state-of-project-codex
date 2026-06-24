@@ -53,10 +53,10 @@ manifests. Codex owns the judgment inside the prepared synthesis artifact.
    - fill `self_evaluation`
 8. Keep the Markdown synthesis aligned with the JSON so a later report writer
    can consume either artifact.
-9. Validate edited JSON with:
+9. Validate the completed synthesis with:
 
    ```bash
-   python3 -m json.tool data/projects/<Project-tag>/synthesis/<run-id>_synthesis.json >/dev/null
+   python3 scripts/project_intel.py validate-synthesis data/projects/<Project-tag>/synthesis/<run-id>_synthesis.json
    ```
 
 ## Reasoning Rules
@@ -64,6 +64,14 @@ manifests. Codex owns the judgment inside the prepared synthesis artifact.
 - Separate source facts from interpretation.
 - Cite evidence with `record_id`, source, timestamp, and source file/line.
 - Build chronology by event time, not by source order.
+- Cluster overlapping evidence before writing chronology. Repeated source
+  fetches, meeting recap emails, transcript summaries, and repo snapshots are
+  corroboration for an event, not separate events by themselves.
+- Distinguish evidence record count from event count. More records can mean
+  more copies or snapshots, not more work performed.
+- When an annotation spans a broad email thread, transcript, or repo snapshot,
+  inspect the specific source block before making fine-grained claims and call
+  out line-precision limits when they matter.
 - Compare source families when possible:
   - GitHub is evidence for code, commits, deployments surfaced through GitHub,
     CI state, issues, and PRs.
