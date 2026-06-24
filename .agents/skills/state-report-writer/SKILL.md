@@ -1,6 +1,6 @@
 ---
 name: state-report-writer
-description: Turn completed Project Intel synthesis artifacts into management-ready state-of-project reports and PDF derivatives. Use when Codex needs to produce, review, or rerender a state report from Project Intel synthesis JSON, write canonical report JSON/Markdown under data/reports, render a PDF, or check report presentation without redoing synthesis reasoning.
+description: Turn completed Project Intel synthesis artifacts into canonical audit reports and curated management PDF briefs. Use when Codex needs to produce, review, or rerender a state report from Project Intel synthesis JSON, write canonical report JSON/Markdown under data/reports, render an HTML/PDF management brief, or check report presentation without redoing synthesis reasoning.
 ---
 
 # State Report Writer
@@ -12,6 +12,9 @@ The synthesizer owns reasoning. The report writer owns presentation,
 readability, source visibility, caveats, review sections, and derivative PDF
 rendering. The JSON/Markdown report is the agent/audit artifact. The HTML/PDF
 report is a management brief and must not be a mechanical Markdown printout.
+
+When creating, changing, or reviewing the PDF/HTML brief shape, read
+`references/management-pdf-brief.md`.
 
 ## Workflow
 
@@ -94,6 +97,8 @@ The management PDF should instead read like a brief:
 
 The PDF should aggregate details into a coherent story. It should not list every
 small event, every evidence ID, or the full evidence index.
+
+Keep detailed PDF presentation rules in `references/management-pdf-brief.md`.
 
 ## Validation
 

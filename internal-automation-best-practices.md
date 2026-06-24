@@ -259,7 +259,7 @@ Good script jobs:
 - inspect a source by exact ID
 - validate markdown or structured artifacts
 - extract structured records from canonical files
-- render a PDF from canonical markdown
+- render audience-specific derivatives from canonical artifacts
 - compute diffs for dry-run mutations
 - write run manifests
 - summarize queue or cursor state
@@ -531,7 +531,7 @@ Good memory:
 Bad memory:
 
 - query this table before that table
-- render PDFs from canonical markdown
+- put PDF presentation procedure in memory instead of a skill/reference
 - check traces before code
 - extract IDs from dashboard URLs
 - never publish CMS edits automatically

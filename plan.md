@@ -454,9 +454,9 @@ evidence, and writes private synthesis JSON/Markdown without advancing the
 report cursor.
 
 `write-state-report <Project-tag>` consumes completed synthesis, writes
-canonical private report JSON/Markdown, renders HTML/PDF derivatives, writes a
-private run manifest, and advances only the project report cursor when the
-report stage succeeds.
+canonical private JSON/Markdown audit artifacts, renders curated HTML/PDF
+management-brief derivatives, writes a private run manifest, and advances only
+the project report cursor when the report stage succeeds.
 
 Skeleton responsibilities:
 
