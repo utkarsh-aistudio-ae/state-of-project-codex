@@ -110,10 +110,12 @@ data/reports/<Project-tag>/<YYYY-MM-DD>/<run-id>_state-of-project.preview.png
 ```
 
 PDFs are curated management derivatives rendered from canonical report
-artifacts. The JSON and Markdown remain the durable audit/report truth. PDFs
-should not expose opaque evidence IDs or local source-file paths, but should
-include concise user-openable links when a concrete source artifact or resource
-is relevant to a statement.
+artifacts. The JSON and Markdown remain the durable audit/report truth. Markdown
+should include user-openable links alongside evidence IDs, source-file paths,
+and the evidence index so agents and reviewers can navigate concrete artifacts.
+PDFs should not expose opaque evidence IDs or local source-file paths, but
+should include concise user-openable links when a concrete source artifact or
+resource is relevant to a statement.
 
 Current command:
 

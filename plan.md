@@ -1158,9 +1158,9 @@ Acceptance criteria:
   not a mechanical printout of the audit Markdown
 - PDF omits evidence IDs, source-file indexes, and exhaustive audit sections
   while keeping relevant source caveats in plain language
-- PDF links concrete conversations, PRs, tickets/issues, commits, deployments,
-  docs, repos, or resources when those specific artifacts are available and
-  relevant to a statement
+- Markdown audit reports and PDF briefs link concrete conversations, PRs,
+  tickets/issues, commits, deployments, docs, repos, or resources when those
+  specific artifacts are available and relevant to a statement
 - PDF rendering validates actual PDF text and produces a first-page PNG preview
   rendered from the PDF, not from source HTML or a browser viewer screenshot
 

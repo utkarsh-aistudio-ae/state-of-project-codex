@@ -388,9 +388,11 @@ truth.
 Derivative formats should be audience-specific. A management PDF may summarize
 and redesign a canonical audit report instead of mechanically printing every
 audit detail.
-Keep opaque evidence IDs and local paths in audit artifacts, but include
+Keep opaque evidence IDs and local paths in audit artifacts, and include
 user-openable links to concrete conversations, PRs, tickets, docs, deployments,
-or repos when those links help readers verify or act on the report.
+or repos when those links help readers verify or act on the report. Audience
+derivatives such as PDFs can omit the opaque IDs while preserving the useful
+links.
 
 Reports should include:
 

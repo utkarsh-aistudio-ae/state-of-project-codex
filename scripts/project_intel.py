@@ -3721,6 +3721,9 @@ def report_item(item: dict[str, Any], evidence_index: dict[str, dict[str, Any]])
                 "occurred_at": evidence_index.get(ref, {}).get("occurred_at"),
                 "source_ref": evidence_index.get(ref, {}).get("source_ref"),
                 "source_title": evidence_index.get(ref, {}).get("source_title"),
+                "concrete_links": evidence_index.get(ref, {}).get("concrete_links"),
+                "links": evidence_index.get(ref, {}).get("links"),
+                "source_links": evidence_index.get(ref, {}).get("source_links"),
                 "source_file": evidence_index.get(ref, {}).get("source_file"),
                 "block_start_line": evidence_index.get(ref, {}).get("block_start_line"),
             }
@@ -3857,6 +3860,32 @@ def evidence_label(evidence_ids: list[str]) -> str:
     return ", ".join(f"`{ref}`" for ref in evidence_ids)
 
 
+def markdown_link(url: Any, label: Any) -> str:
+    clean_url = compact_text(url)
+    if not clean_url.startswith(("http://", "https://")):
+        return ""
+    clean_url = clean_url.replace("<", "%3C").replace(">", "%3E")
+    clean_label = compact_text(label) or clean_url
+    clean_label = clean_label.replace("[", "\\[").replace("]", "\\]")
+    return f"[{clean_label}](<{clean_url}>)"
+
+
+def render_item_links_markdown(item: dict[str, Any], limit: int = 5) -> str:
+    links = concrete_links_for_item(item, limit=limit)
+    if not links:
+        return ""
+    rendered = [markdown_link(link["url"], link["label"]) for link in links]
+    rendered = [link for link in rendered if link]
+    return f"Links: {' · '.join(rendered)}" if rendered else ""
+
+
+def render_source_link_markdown(source_record: dict[str, Any]) -> str:
+    links = concrete_links_for_item({"sources": [source_record]}, limit=1)
+    if not links:
+        return ""
+    return markdown_link(links[0]["url"], links[0]["label"])
+
+
 def append_report_items(lines: list[str], items: list[dict[str, Any]], empty_text: str) -> None:
     if not items:
         lines.append(empty_text)
@@ -3878,6 +3907,9 @@ def append_report_items(lines: list[str], items: list[dict[str, Any]], empty_tex
             f"Evidence: {evidence_label(item.get('evidence', []))}",
             "",
         ])
+        links_line = render_item_links_markdown(item)
+        if links_line:
+            lines.extend([links_line, ""])
         if item.get("recommended_action"):
             lines.extend([f"Recommended action: {item['recommended_action']}", ""])
 
@@ -3940,6 +3972,9 @@ def render_state_report_markdown(payload: dict[str, Any]) -> str:
             f"- Evidence: {evidence_label(item.get('evidence', []))}",
             "",
         ])
+        links_line = render_item_links_markdown(item)
+        if links_line:
+            lines.extend([links_line, ""])
         if item.get("recommended_action"):
             lines.extend([f"Recommended action: {item['recommended_action']}", ""])
 
@@ -3957,6 +3992,9 @@ def render_state_report_markdown(payload: dict[str, Any]) -> str:
             f"- Source file: `{item.get('source_file')}:{item.get('block_start_line')}`",
             f"- Reason: {item.get('reason')}",
         ])
+        source_link = render_source_link_markdown(item)
+        if source_link:
+            lines.append(f"- Link: {source_link}")
         if item.get("recommended_action"):
             lines.append(f"- Recommended action: {item.get('recommended_action')}")
         lines.append("")
@@ -4000,10 +4038,14 @@ def render_state_report_markdown(payload: dict[str, Any]) -> str:
         lines.append("_No evidence index was available._")
     else:
         for record_id, record in sorted(evidence_index.items()):
-            lines.append(
+            source_link = render_source_link_markdown(record)
+            line = (
                 f"- `{record_id}` `{record.get('source')}` `{record.get('occurred_at')}` "
                 f"`{record.get('source_file')}:{record.get('block_start_line')}`"
             )
+            if source_link:
+                line = f"{line} {source_link}"
+            lines.append(line)
     lines.extend([
         "",
         "## 10. Report Integrity",

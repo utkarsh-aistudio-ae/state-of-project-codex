@@ -44,7 +44,9 @@ When creating, changing, or reviewing the PDF/HTML brief shape, read
    ```
 
 4. Treat JSON and Markdown as canonical audit artifacts. Treat HTML and PDF as
-   curated management derivatives.
+   curated management derivatives. Markdown should still include user-openable
+   links to concrete source artifacts where useful; unlike the PDF, it may also
+   include evidence IDs, source paths, and the evidence index.
 5. If the report is a dry run or review-only render, pass:
 
    ```bash
@@ -89,6 +91,7 @@ The canonical Markdown should include detailed audit sections:
 - Source coverage and caveats
 - Evidence index
 - Report integrity
+- Relevant user-openable links in item sections and evidence-index rows
 
 The management PDF should instead read like a brief:
 
