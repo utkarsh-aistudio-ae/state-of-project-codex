@@ -46,6 +46,10 @@ cursor ownership by source family and project context.
   environments, or client-specific Drive folders. Those use project-linked
   fetch cursors so a newly added project gets its own initial fetch window
   instead of inheriting an old global source cursor.
+- Project-linked source logs must use stable source-entity paths instead of
+  fetch-time filenames. For example, a GitHub repo activity log should be
+  keyed by repo/day and cursor context, not by the minute the reader happened
+  to run. Fetch windows belong in frontmatter and cursor state.
 - Before project-linked fetch cursors run, project-resource discovery cursors
   can scan provider inventory for new repos, deployments, environments, folders,
   or similar source entities that may belong to the project.

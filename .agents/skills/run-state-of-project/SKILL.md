@@ -83,8 +83,9 @@ Current implemented batch readers:
 
 - GitHub: uses active project repo profiles from
   `data/registry/project-tags.yaml` as project-scoped source entities and reader
-  limits from `data/registry/source-families.yaml`; repos are deduped across
-  reports.
+  limits from `data/registry/source-families.yaml`; fetch cursors are
+  project-linked, and repo activity logs use stable source-entity paths instead
+  of fetch-time filenames.
 - Gmail: uses project aliases, strong signals, and reader settings from the
   registries as discovery signals, dedupes matching thread IDs, and fetches
   full sanitized threads once per shared source window.

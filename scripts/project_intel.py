@@ -804,6 +804,10 @@ def source_log_path(source: str, occurred_at: datetime, filename: str) -> Path:
     return ROOT / "data" / "raw" / "untouched" / source / month / day / filename
 
 
+def github_repo_activity_path(repo: str, occurred_at: datetime) -> Path:
+    return source_log_path(GITHUB_SOURCE, occurred_at, f"repo_{repo_slug(repo)}_activity.md")
+
+
 def seen_source_path(seen_keys: dict[str, Any] | None, source_key: str) -> Path | None:
     if not isinstance(seen_keys, dict):
         return None
@@ -1155,8 +1159,8 @@ def render_github_repo_activity(
     repo_name = str(metadata_payload.get("nameWithOwner") or repo)
     source_ref = str(metadata_payload.get("url") or f"https://github.com/{repo}")
     content_hash = json_hash(payload)
-    filename = f"repo_{repo_slug(repo)}_activity.md"
-    path = path_override or source_log_path(GITHUB_SOURCE, end, filename)
+    canonical_path = github_repo_activity_path(repo, end)
+    path = path_override if path_override == canonical_path else canonical_path
     title = f"GitHub Activity: {repo_name}"
 
     metadata: dict[str, Any] = {
@@ -2806,49 +2810,134 @@ def compute_report_window(project: str, now: datetime) -> tuple[datetime, dateti
     return start, now, cursor
 
 
-def data_fetch_cursor_path(source: str) -> Path:
+def legacy_data_fetch_cursor_path(source: str) -> Path:
     return ROOT / "state" / "cursors" / DATA_FETCH_CURSOR_SCOPE / f"{source}.json"
 
 
-def build_data_fetch_plan(now: datetime) -> list[dict[str, Any]]:
+def data_fetch_source_cursor_path(source: str) -> Path:
+    return ROOT / "state" / "cursors" / DATA_FETCH_CURSOR_SCOPE / "sources" / f"{source}.json"
+
+
+def data_fetch_project_cursor_path(project: str, source: str) -> Path:
+    return ROOT / "state" / "cursors" / DATA_FETCH_CURSOR_SCOPE / "projects" / project / f"{source}.json"
+
+
+def data_fetch_cursor_path(source: str) -> Path:
+    return data_fetch_source_cursor_path(source)
+
+
+def source_fetch_cursor_owner(family: dict[str, Any]) -> str:
+    owner = family.get("fetch_cursor_owner")
+    if isinstance(owner, str) and owner.strip():
+        return owner.strip()
+    scope = family.get("cursor_scope")
+    if scope == "shared_source":
+        return "source_linked"
+    if scope == "source_entity":
+        return "project_linked"
+    if scope == "mixed_source":
+        return "source_or_project_linked_by_entity"
+    return "source_linked"
+
+
+def read_cursor_with_legacy(
+    primary_path: Path,
+    default: dict[str, Any],
+    legacy_paths: list[Path] | None = None,
+) -> tuple[dict[str, Any], Path | None]:
+    if primary_path.exists():
+        cursor = read_json_file(primary_path, {})
+        return (cursor if isinstance(cursor, dict) else dict(default)), primary_path
+    for legacy_path in legacy_paths or []:
+        if legacy_path.exists():
+            cursor = read_json_file(legacy_path, {})
+            return (cursor if isinstance(cursor, dict) else dict(default)), legacy_path
+    return dict(default), None
+
+
+def plan_cursor_record(
+    family: dict[str, Any],
+    now: datetime,
+    cursor_path_value: Path,
+    default_cursor: dict[str, Any],
+    legacy_paths: list[Path] | None = None,
+    project: str | None = None,
+) -> dict[str, Any]:
+    cursor, loaded_from = read_cursor_with_legacy(cursor_path_value, default_cursor, legacy_paths)
+    start, end, overlap_hours = compute_source_window(cursor, now)
+    reader_status = str(family.get("reader_status") or "not_implemented")
+    reason = str(family.get("skip_reason") or "batch reader not implemented yet")
+    if reader_status == "implemented":
+        status = "pending"
+        reason = "reader ready"
+    elif reader_status == "single_fetch_only":
+        status = "skipped"
+        reason = str(family.get("skip_reason") or "only single-item fetch is implemented")
+    else:
+        status = "skipped"
+
+    record = {
+        "source": str(family["name"]),
+        "scope": DATA_FETCH_CURSOR_SCOPE,
+        "project": project,
+        "cursor_owner": source_fetch_cursor_owner(family),
+        "cursor_path": ensure_relative(cursor_path_value),
+        "cursor_loaded_from": ensure_relative(loaded_from) if loaded_from else None,
+        "fetch_start": iso(start),
+        "fetch_end": iso(end),
+        "last_successful_fetch_at": cursor.get("last_successful_fetch_at"),
+        "lookback_overlap_hours": overlap_hours,
+        "status": status,
+        "reason": reason,
+        "reader_status": reader_status,
+        "source_class": family.get("source_class"),
+        "canonical_for": family.get("canonical_for", []),
+        "cursor_advanced": False,
+        "files": [],
+        "errors": [],
+    }
+    if legacy_paths:
+        record["legacy_cursor_paths"] = [ensure_relative(path) for path in legacy_paths if path.exists()]
+    return record
+
+
+def build_data_fetch_plan(now: datetime, registry: ProjectRegistry) -> list[dict[str, Any]]:
     plans: list[dict[str, Any]] = []
     for family in data_fetch_source_families():
         source = str(family["name"])
-        source_cursor_path = data_fetch_cursor_path(source)
         default_overlap = parse_int(str(family.get("lookback_overlap_hours", 48))) or 48
-        cursor = read_json_file(source_cursor_path, {
-            "scope": DATA_FETCH_CURSOR_SCOPE,
-            "source": source,
-            "lookback_overlap_hours": default_overlap,
-            "seen_keys": {},
-        })
-        start, end, overlap_hours = compute_source_window(cursor, now)
-        reader_status = str(family.get("reader_status") or "not_implemented")
-        reason = str(family.get("skip_reason") or "batch reader not implemented yet")
-        if reader_status == "implemented":
-            status = "pending"
-            reason = "reader ready"
-        elif reader_status == "single_fetch_only":
-            status = "skipped"
-            reason = str(family.get("skip_reason") or "only single-item fetch is implemented")
+        owner = source_fetch_cursor_owner(family)
+        if owner == "project_linked":
+            for project in active_project_tags(registry):
+                project_cursor_path = data_fetch_project_cursor_path(project, source)
+                plans.append(plan_cursor_record(
+                    family,
+                    now,
+                    project_cursor_path,
+                    {
+                        "scope": DATA_FETCH_CURSOR_SCOPE,
+                        "source": source,
+                        "project": project,
+                        "lookback_overlap_hours": default_overlap,
+                        "seen_keys": {},
+                    },
+                    legacy_paths=[cursor_path(project, source)],
+                    project=project,
+                ))
         else:
-            status = "skipped"
-        plans.append({
-            "source": source,
-            "scope": DATA_FETCH_CURSOR_SCOPE,
-            "cursor_path": ensure_relative(source_cursor_path),
-            "fetch_start": iso(start),
-            "fetch_end": iso(end),
-            "lookback_overlap_hours": overlap_hours,
-            "status": status,
-            "reason": reason,
-            "reader_status": reader_status,
-            "source_class": family.get("source_class"),
-            "canonical_for": family.get("canonical_for", []),
-            "cursor_advanced": False,
-            "files": [],
-            "errors": [],
-        })
+            source_cursor_path = data_fetch_source_cursor_path(source)
+            plans.append(plan_cursor_record(
+                family,
+                now,
+                source_cursor_path,
+                {
+                    "scope": DATA_FETCH_CURSOR_SCOPE,
+                    "source": source,
+                    "lookback_overlap_hours": default_overlap,
+                    "seen_keys": {},
+                },
+                legacy_paths=[legacy_data_fetch_cursor_path(source)],
+            ))
     return plans
 
 
@@ -2880,7 +2969,31 @@ def advance_source_cursor(
         "lookback_overlap_hours": plan["lookback_overlap_hours"],
         "seen_keys": compact_seen_keys(merged_seen),
     }
+    if plan.get("project"):
+        payload["project"] = plan.get("project")
+    if plan.get("cursor_owner"):
+        payload["cursor_owner"] = plan.get("cursor_owner")
+    if plan.get("cursor_loaded_from") and plan.get("cursor_loaded_from") != plan.get("cursor_path"):
+        payload["migrated_from_cursor_path"] = plan.get("cursor_loaded_from")
     return write_json_if_changed(source_cursor_path, payload)
+
+
+def cursor_for_fetch_plan(plan: dict[str, Any]) -> dict[str, Any]:
+    primary_path = resolve_path_argument(str(plan["cursor_path"]))
+    legacy_paths = [
+        resolve_path_argument(path)
+        for path in plan.get("legacy_cursor_paths", [])
+        if isinstance(path, str)
+    ]
+    default_cursor = {
+        "scope": plan.get("scope") or DATA_FETCH_CURSOR_SCOPE,
+        "source": plan.get("source"),
+        "project": plan.get("project"),
+        "lookback_overlap_hours": plan.get("lookback_overlap_hours") or 48,
+        "seen_keys": {},
+    }
+    cursor, _loaded_from = read_cursor_with_legacy(primary_path, default_cursor, legacy_paths)
+    return cursor
 
 
 def execute_data_fetches(
@@ -2908,14 +3021,24 @@ def execute_data_fetches(
 
         try:
             family = source_family_named(source)
-            existing_cursor = read_json_file(resolve_path_argument(str(updated["cursor_path"])), {})
+            existing_cursor = cursor_for_fetch_plan(updated)
             existing_seen_keys = (
                 existing_cursor.get("seen_keys")
                 if isinstance(existing_cursor.get("seen_keys"), dict)
                 else {}
             )
             if source == GITHUB_SOURCE:
-                result = github_fetch_registry_logs(start, end, family, registry, existing_seen_keys=existing_seen_keys)
+                if updated.get("project"):
+                    result = github_fetch_project_logs(
+                        str(updated["project"]),
+                        start,
+                        end,
+                        family,
+                        registry,
+                        existing_seen_keys=existing_seen_keys,
+                    )
+                else:
+                    result = github_fetch_registry_logs(start, end, family, registry, existing_seen_keys=existing_seen_keys)
             elif source == GMAIL_SOURCE:
                 result = gmail_fetch_registry_logs(start, end, family, registry, existing_seen_keys=existing_seen_keys)
             else:
@@ -3049,24 +3172,24 @@ def count_records_by_key(records: list[dict[str, Any]], key: str) -> dict[str, i
     return dict(sorted(counts.items()))
 
 
-def source_coverage_snapshot(now: datetime) -> list[dict[str, Any]]:
+def source_coverage_snapshot(now: datetime, registry: ProjectRegistry) -> list[dict[str, Any]]:
     coverage: list[dict[str, Any]] = []
-    for family in load_source_families():
-        source = str(family.get("name") or "unknown")
-        cursor_file = data_fetch_cursor_path(source)
-        cursor = read_json_file(cursor_file, {})
-        last_fetch = cursor.get("last_successful_fetch_at") if isinstance(cursor, dict) else None
+    for plan in build_data_fetch_plan(now, registry):
+        source = str(plan.get("source") or "unknown")
+        family = source_family_or_empty(source)
         coverage.append({
             "source": source,
+            "project": plan.get("project"),
             "reader_status": family.get("reader_status"),
             "source_class": family.get("source_class"),
             "fetch_cursor_owner": family.get("fetch_cursor_owner"),
             "tagging_cursor_owner": family.get("tagging_cursor_owner"),
-            "last_successful_fetch_at": last_fetch,
-            "cursor_path": ensure_relative(cursor_file),
+            "last_successful_fetch_at": plan.get("last_successful_fetch_at"),
+            "cursor_path": plan.get("cursor_path"),
+            "cursor_loaded_from": plan.get("cursor_loaded_from"),
             "current_window_preview": {
-                "start": iso(compute_source_window(cursor if isinstance(cursor, dict) else {}, now)[0]),
-                "end": iso(now),
+                "start": plan.get("fetch_start"),
+                "end": plan.get("fetch_end"),
             },
             "canonical_for": family.get("canonical_for", []),
             "not_canonical_for": family.get("not_canonical_for", []),
@@ -3139,7 +3262,7 @@ def build_synthesis_payload(
             "queue_review_item_count": len(review_items_from_queue(queue_payload)),
             "queue_blocking_item_count": len(blocking_items_from_queue(queue_payload)),
         },
-        "source_coverage": source_coverage_snapshot(generated_at),
+        "source_coverage": source_coverage_snapshot(generated_at, registry),
         "evidence_summary": {
             "confirmed_count": len(compact_confirmed),
             "uncertain_count": len(compact_uncertain),
@@ -3296,8 +3419,11 @@ def render_synthesis_markdown(payload: dict[str, Any]) -> str:
 
     lines.extend(["## Source Coverage Snapshot", ""])
     for source in payload.get("source_coverage", []):
+        label = str(source.get("source") or "unknown")
+        if source.get("project"):
+            label = f"{label}/{source.get('project')}"
         lines.append(
-            f"- {source.get('source')}: {source.get('reader_status')} "
+            f"- {label}: {source.get('reader_status')} "
             f"(last fetch: {source.get('last_successful_fetch_at') or 'unknown'})"
         )
     return "\n".join(lines).rstrip() + "\n"
@@ -3583,7 +3709,7 @@ def run_data_fetch(args: argparse.Namespace) -> int:
 
     try:
         registry = load_project_registry()
-        source_fetches = execute_data_fetches(build_data_fetch_plan(now), registry)
+        source_fetches = execute_data_fetches(build_data_fetch_plan(now, registry), registry)
         queue_payload = build_queue_payload()
 
         manifest["registry_hash"] = registry.hash
@@ -3970,7 +4096,30 @@ def print_reader_result(label: str, result: dict[str, Any]) -> None:
 
 
 def shared_seen_keys(source: str) -> dict[str, Any]:
-    cursor = read_json_file(data_fetch_cursor_path(source), {})
+    cursor, _loaded_from = read_cursor_with_legacy(
+        data_fetch_source_cursor_path(source),
+        {
+            "scope": DATA_FETCH_CURSOR_SCOPE,
+            "source": source,
+            "seen_keys": {},
+        },
+        [legacy_data_fetch_cursor_path(source)],
+    )
+    seen_keys = cursor.get("seen_keys")
+    return dict(seen_keys) if isinstance(seen_keys, dict) else {}
+
+
+def project_data_fetch_seen_keys(project: str, source: str) -> dict[str, Any]:
+    cursor, _loaded_from = read_cursor_with_legacy(
+        data_fetch_project_cursor_path(project, source),
+        {
+            "scope": DATA_FETCH_CURSOR_SCOPE,
+            "source": source,
+            "project": project,
+            "seen_keys": {},
+        },
+        [cursor_path(project, source)],
+    )
     seen_keys = cursor.get("seen_keys")
     return dict(seen_keys) if isinstance(seen_keys, dict) else {}
 
@@ -4029,7 +4178,7 @@ def github_fetch_project(args: argparse.Namespace) -> int:
         end,
         family,
         registry,
-        existing_seen_keys=shared_seen_keys(GITHUB_SOURCE),
+        existing_seen_keys=project_data_fetch_seen_keys(args.project, GITHUB_SOURCE),
     )
     print_reader_result(f"GitHub project fetch {args.project}", result)
     return 0 if result.get("status") == "ok" else 1
@@ -4052,7 +4201,7 @@ def github_fetch_repo(args: argparse.Namespace) -> int:
         start,
         end,
         family,
-        path_override=seen_source_path(shared_seen_keys(GITHUB_SOURCE), args.repo),
+        path_override=seen_source_path(project_data_fetch_seen_keys(args.project, GITHUB_SOURCE), args.repo),
     )
     print(f"GitHub repo fetched: {args.repo}")
     print(f"- {file_record['status']}: {file_record['path']}")

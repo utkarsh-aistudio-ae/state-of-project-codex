@@ -73,7 +73,9 @@ Future concepts:
    entity-dependent for mixed sources.
 4. Run implemented source readers. GitHub and Gmail are currently implemented.
    Gmail is broad shared-source ingestion; GitHub is project-profile-driven
-   source-entity ingestion. Fireflies batch discovery, Drive, and
+   source-entity ingestion. Source-entity readers must reuse stable source
+   paths for the same entity/activity bucket instead of creating new files from
+   fetch time alone. Fireflies batch discovery, Drive, and
    deployment-provider-specific readers remain source coverage gaps until their
    readers exist.
 5. Build the derived source-artifact tagging worklist from the cursor-selected
@@ -141,6 +143,8 @@ data/reports/<Project-tag>/<YYYY-MM-DD>/<run-id>_state-of-project.pdf
   ambiguity.
 - Do not create a durable queue in the current filesystem-first prototype.
 - Do not fetch shared datasources once per project report.
+- Do not use fetch-time-only filenames as source identity for project-linked
+  source entities such as GitHub repos.
 - Do not let a global source cursor cause a newly added project to miss its
   default initial window for project-specific resources.
 - Do not silently auto-link project resources unless the source-family policy

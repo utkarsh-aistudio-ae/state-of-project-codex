@@ -153,6 +153,12 @@ GitHub currently fetches repos already listed in project profiles. The nightly
 wide-net repository discovery step is planned. Deployment resource discovery
 across Vercel/Railway/provider environments is also planned.
 
+GitHub uses project-linked fetch cursors. Repo activity source logs must be
+stable by source entity and day, for example
+`repo_aistudioae__argos-ddt-prod_activity.md`, with the cursor-selected fetch
+window stored in frontmatter. The reader should not create a new source log
+only because the fetch happened at a different minute.
+
 Fireflies still has only single-transcript fetch support. Drive and deployment
 readers are planned. Skipped sources must remain visible in run manifests and
 reports as source coverage gaps.
@@ -177,6 +183,9 @@ reports as source coverage gaps.
 - Project-linked source cursors should still reuse stable source entity
   identities and cursor `seen_keys` so the same entity is not fetched or tagged
   repeatedly for multiple reports.
+- Readers for source-entity resources must not use fetch-time-only filenames as
+  source identity. If the source entity and intended activity bucket are the
+  same, repeated fetches update/reuse the same source log and cursor entry.
 - New canonical projects trigger a default shared-source tagging lookback of
   seven days. Existing project reports do not.
 - Source status must be recorded in run manifests.

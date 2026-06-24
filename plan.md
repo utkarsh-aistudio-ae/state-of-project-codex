@@ -854,12 +854,18 @@ For Argos, prior sweep found:
 Output:
 
 ```text
-data/raw/untouched/GitHub/<YYYY-MM>/<YYYY-MM-DD>/repo_aistudioae__argos-ddt-prod_<HHMM>.md
-data/raw/tagged/GitHub/<YYYY-MM>/<YYYY-MM-DD>/repo_aistudioae__argos-ddt-prod_<HHMM>.md
+data/raw/untouched/GitHub/<YYYY-MM>/<YYYY-MM-DD>/repo_aistudioae__argos-ddt-prod_activity.md
+data/raw/tagged/GitHub/<YYYY-MM>/<YYYY-MM-DD>/repo_aistudioae__argos-ddt-prod_activity.md
 ```
 
 GitHub logs should be source logs, not final summaries. They can include
 sections for commits, deployments, CI, issues, PRs, and releases.
+
+The GitHub source-log identity is the project-linked source entity, not the
+fetch time. Re-running the reader for the same repo/day should update the same
+repo activity log and cursor `seen_keys`; it should not mint
+`_<HHMM>`-suffixed duplicate logs for the same repo activity. The fetch window
+belongs in frontmatter and metadata, not in the source filename.
 
 Acceptance criteria:
 
