@@ -67,6 +67,11 @@ When creating, changing, or reviewing the PDF/HTML brief shape, read
 - Do not include raw source transcript/email blocks in the management report.
   Keep evidence IDs, source paths, exhaustive evidence indexes, and audit tables
   in JSON/Markdown rather than the PDF.
+- Add links to concrete source artifacts when they are directly relevant and
+  available: conversations, email threads, PRs, issues/tickets, commits,
+  deployments, docs, repos, or other resource URLs. Prefer the most specific
+  link that supports the statement. Do not substitute local source-file paths
+  or opaque evidence IDs for real user-openable links.
 - Prefer a concise 1-2 page management brief as a soft target. Do not enforce a
   hard page limit when the project state genuinely needs more space.
 
@@ -94,6 +99,7 @@ The management PDF should instead read like a brief:
 - risks, blockers, and open questions
 - recommended next actions
 - plain-language source coverage notes
+- concrete source/resource links where useful
 
 The PDF should aggregate details into a coherent story. It should not list every
 small event, every evidence ID, or the full evidence index.

@@ -88,7 +88,12 @@ Responsibilities:
 - include uncertain project-resource candidates in a review section with
   confidence, matched signals, source reference, and recommended next action
 - avoid adding new factual claims that are not in synthesis or source evidence
-- prepare canonical markdown/JSON and derivative HTML/PDF artifacts
+- prepare canonical markdown/JSON audit artifacts and curated HTML/PDF
+  management-brief artifacts
+- preserve user-openable source/resource links when available. Conversations,
+  email threads, PRs, issues/tickets, commits, deployments, docs, repos, and
+  other concrete resource URLs should be available to report renderers as
+  structured link data or source references.
 
 The report writer should not be responsible for deep chronology inference,
 cross-source contradiction detection, or comparing conversation promises to
@@ -99,11 +104,16 @@ Suggested output path:
 ```text
 data/reports/<Project-tag>/<YYYY-MM-DD>/<run-id>_state-of-project.md
 data/reports/<Project-tag>/<YYYY-MM-DD>/<run-id>_state-of-project.json
+data/reports/<Project-tag>/<YYYY-MM-DD>/<run-id>_state-of-project.html
 data/reports/<Project-tag>/<YYYY-MM-DD>/<run-id>_state-of-project.pdf
+data/reports/<Project-tag>/<YYYY-MM-DD>/<run-id>_state-of-project.preview.png
 ```
 
-PDFs are derivatives rendered from canonical report artifacts. The JSON and
-Markdown remain the durable report truth.
+PDFs are curated management derivatives rendered from canonical report
+artifacts. The JSON and Markdown remain the durable audit/report truth. PDFs
+should not expose opaque evidence IDs or local source-file paths, but should
+include concise user-openable links when a concrete source artifact or resource
+is relevant to a statement.
 
 Current command:
 
@@ -112,9 +122,9 @@ python3 scripts/project_intel.py write-state-report <Project-tag> --synthesis da
 ```
 
 If `--synthesis` is omitted, the command uses the latest synthesized artifact
-for the project. It writes report JSON/Markdown, renders HTML/PDF derivatives,
-writes a run manifest, and advances the project report cursor after success
-unless `--no-advance-cursor` is set.
+for the project. It writes report JSON/Markdown, renders the HTML/PDF
+management brief, writes a PDF preview, writes a run manifest, and advances the
+project report cursor after success unless `--no-advance-cursor` is set.
 
 ## Legacy Skeleton
 

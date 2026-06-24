@@ -27,12 +27,14 @@ Include:
 - risks, blockers, and open questions
 - recommended next actions
 - short source coverage caveat in plain language
+- concrete links to the relevant conversation, email thread, PR, issue/ticket,
+  commit, deployment, doc, repo, or resource when available
 
 Exclude:
 
 - evidence IDs
 - evidence index
-- source paths
+- local source paths
 - raw transcript or email excerpts
 - exhaustive event dumps
 - internal-only review records unless they materially affect management action
@@ -46,6 +48,9 @@ Exclude:
   questions, next actions, coverage notes.
 - Make confidence and source coverage visible without turning the report into a
   debug log.
+- Surface user-openable links as short contextual link rows. Prefer specific
+  links over generic source links, and omit links when they are unavailable or
+  not relevant to the statement.
 - Use restrained business styling: clear hierarchy, readable type, generous
   spacing, and no decorative clutter.
 
@@ -72,6 +77,8 @@ After rendering:
   log
 - check for overflow, clipped text, blank pages, browser errors, or temp paths
 - confirm source caveats are visible but concise
+- confirm concrete conversation/PR/ticket/resource references are linked when
+  the report names or depends on them
 - confirm next actions are useful and not external writes
 
 Do not use brittle formatting checks as a substitute for this review loop.

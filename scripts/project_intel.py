@@ -3719,6 +3719,8 @@ def report_item(item: dict[str, Any], evidence_index: dict[str, dict[str, Any]])
                 "record_id": ref,
                 "source": evidence_index.get(ref, {}).get("source"),
                 "occurred_at": evidence_index.get(ref, {}).get("occurred_at"),
+                "source_ref": evidence_index.get(ref, {}).get("source_ref"),
+                "source_title": evidence_index.get(ref, {}).get("source_title"),
                 "source_file": evidence_index.get(ref, {}).get("source_file"),
                 "block_start_line": evidence_index.get(ref, {}).get("block_start_line"),
             }
@@ -4074,6 +4076,70 @@ def report_followup_subset(items: Any, limit: int) -> list[dict[str, Any]]:
     return selected
 
 
+def clean_source_title(value: Any) -> str:
+    text = str(value or "")
+    text = re.sub(r"<<<[^>]+>>>", " ", text)
+    text = re.sub(r"Source:\s*\S+\s*---", " ", text)
+    return compact_text(text)
+
+
+def link_label_for_source(source_record: dict[str, Any]) -> str:
+    source = compact_text(source_record.get("source"))
+    title = clean_source_title(source_record.get("source_title"))
+    if source == "Fireflies":
+        return f"Meeting: {title}" if title else "Fireflies meeting"
+    if source == "Gmail":
+        return f"Email: {title}" if title else "Gmail thread"
+    if source == "GitHub":
+        return title.replace("GitHub Activity: ", "GitHub: ") if title else "GitHub source"
+    return f"{source} source" if source else "Source link"
+
+
+def concrete_links_for_item(item: dict[str, Any], limit: int = 2) -> list[dict[str, str]]:
+    links: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def add_link(url: Any, label: Any) -> None:
+        clean_url = compact_text(url)
+        if not clean_url.startswith(("http://", "https://")) or clean_url in seen:
+            return
+        clean_label = compact_text(label) or "Open source"
+        links.append({"url": clean_url, "label": clean_label[:80]})
+        seen.add(clean_url)
+
+    for source_record in item.get("sources", []) if isinstance(item.get("sources"), list) else []:
+        if not isinstance(source_record, dict):
+            continue
+        for key in ("concrete_links", "links", "source_links"):
+            raw_links = source_record.get(key)
+            if not isinstance(raw_links, list):
+                continue
+            for raw_link in raw_links:
+                if not isinstance(raw_link, dict):
+                    continue
+                add_link(
+                    raw_link.get("url") or raw_link.get("href") or raw_link.get("source_ref"),
+                    raw_link.get("label") or raw_link.get("title") or raw_link.get("kind"),
+                )
+                if len(links) >= limit:
+                    return links
+        add_link(source_record.get("source_ref"), link_label_for_source(source_record))
+        if len(links) >= limit:
+            return links
+    return links
+
+
+def render_item_links(item: dict[str, Any]) -> str:
+    links = concrete_links_for_item(item)
+    if not links:
+        return ""
+    anchors = [
+        f'<a href="{html.escape(link["url"], quote=True)}">{html.escape(link["label"])}</a>'
+        for link in links
+    ]
+    return f'<p class="links">Links: {" · ".join(anchors)}</p>'
+
+
 def render_item_cards(items: list[dict[str, Any]], empty_text: str) -> str:
     if not items:
         return f'<p class="muted">{html.escape(empty_text)}</p>'
@@ -4088,6 +4154,7 @@ def render_item_cards(items: list[dict[str, Any]], empty_text: str) -> str:
                 '<article class="item">',
                 f"<h3>{html.escape(title)}</h3>",
                 f"<p>{html.escape(summary)}</p>" if summary else "",
+                render_item_links(item),
                 confidence_html,
                 "</article>",
             ])
@@ -4164,13 +4231,15 @@ p { margin: 0 0 8px; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .item { break-inside: avoid; margin: 0 0 9px; padding: 0; }
 .item p { color: #374151; }
+.links { color: #475467; font-size: 8.8pt; margin-top: -2px; }
+.links a { color: #1d4ed8; text-decoration: none; }
 .confidence { color: #667085; display: inline-block; font-size: 8.6pt; margin-top: -2px; }
 .callout { background: #f7f9fb; border: 1px solid #dbe3ed; border-radius: 6px; margin-top: 10px; padding: 10px 12px; }
 .muted { color: #667085; }
 .footer-note { color: #667085; font-size: 8.5pt; margin-top: 12px; }
 @media print {
   h2, h3, .item, .callout { break-inside: avoid; }
-  .page-break-avoid { break-inside: avoid; }
+  .page-break-avoid { break-inside: auto; }
 }
 """
     document = "\n".join([
