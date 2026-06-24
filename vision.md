@@ -480,8 +480,8 @@ external scheduler or follow-on step -> synthesize-project-state <Project-tag>
 
 external scheduler or follow-on step -> write-state-report <Project-tag>
   -> consume completed synthesis
-  -> generate canonical private state-of-project report JSON/Markdown
-  -> render derivative HTML/PDF
+  -> generate canonical private state-of-project audit JSON/Markdown
+  -> render curated management HTML/PDF brief
   -> validate derivative PDF text and first-page preview from the actual PDF
   -> advance project report cursor only after the report stage succeeds
 ```

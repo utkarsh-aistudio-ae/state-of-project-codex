@@ -385,6 +385,9 @@ Canonical artifacts are usually markdown or structured JSON. PDFs, slides,
 screenshots, and images are derivatives. If a derivative is missing, render it
 from the canonical artifact. Do not treat a random PDF or media file as report
 truth.
+Derivative formats should be audience-specific. A management PDF may summarize
+and redesign a canonical audit report instead of mechanically printing every
+audit detail.
 
 Reports should include:
 

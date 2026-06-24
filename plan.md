@@ -1143,9 +1143,9 @@ python3 scripts/project_intel.py write-state-report <Project-tag> --synthesis da
 ```
 
 If `--synthesis` is omitted, the command uses the latest synthesized artifact.
-It writes canonical JSON/Markdown under `data/reports`, renders HTML/PDF
-derivatives, writes a run manifest, and advances the project report cursor
-unless `--no-advance-cursor` is used.
+It writes canonical JSON/Markdown audit artifacts under `data/reports`, renders
+HTML/PDF management-brief derivatives, writes a run manifest, and advances the
+project report cursor unless `--no-advance-cursor` is used.
 
 Acceptance criteria:
 
@@ -1154,7 +1154,10 @@ Acceptance criteria:
 - report distinguishes confirmed vs uncertain
 - report lists skipped/unavailable sources
 - no secrets are included
-- PDF is treated as a derivative of canonical markdown/JSON
+- PDF is treated as a curated management derivative of canonical markdown/JSON,
+  not a mechanical printout of the audit Markdown
+- PDF omits evidence IDs, source-file indexes, and exhaustive audit sections
+  while keeping relevant source caveats in plain language
 - PDF rendering validates actual PDF text and produces a first-page PNG preview
   rendered from the PDF, not from source HTML or a browser viewer screenshot
 

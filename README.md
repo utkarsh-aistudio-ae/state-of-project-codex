@@ -129,13 +129,13 @@ source windows, reads data-fetch source families from
 fetch cursors after successful capture, and records a private manifest.
 `synthesize-project-state <Project-tag>` checks the derived tagging worklist,
 validates/extracts tagged evidence, and writes private synthesis artifacts.
-`write-state-report <Project-tag>` writes the canonical private report under
-`data/reports/`, renders the PDF derivative, records a private manifest under
-`logs/runs/`, and advances the project report cursor after the report stage
-succeeds.
-The PDF path includes deterministic text checks and a first-page preview rendered
-from the actual PDF so browser error pages, blank renders, and renderer
-diagnostics are not accepted as completed reports.
+`write-state-report <Project-tag>` writes canonical private JSON/Markdown audit
+artifacts under `data/reports/`, renders a curated HTML/PDF management brief,
+records a private manifest under `logs/runs/`, and advances the project report
+cursor after the report stage succeeds. The PDF path includes deterministic text
+checks and a first-page preview rendered from the actual PDF so browser error
+pages, blank renders, and renderer diagnostics are not accepted as completed
+reports.
 
 Fetching and tagging are source-artifact/source-entity stages. Some artifacts
 are broad shared conversations; others are project-scoped entities such as repos

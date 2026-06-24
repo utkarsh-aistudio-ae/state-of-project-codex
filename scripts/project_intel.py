@@ -4017,41 +4017,205 @@ def render_state_report_markdown(payload: dict[str, Any]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def render_report_html(markdown_path: Path, html_path_value: Path, title: str) -> WriteResult:
-    try:
-        completed = subprocess.run(
-            ["pandoc", str(markdown_path), "-f", "gfm", "-t", "html5"],
-            cwd=ROOT,
-            check=True,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+def compact_text(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def report_date_label(value: Any) -> str:
+    parsed = parse_iso_datetime(str(value)) if value else None
+    if not parsed:
+        return compact_text(value) or "unknown"
+    months = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+    return f"{months[parsed.month - 1]} {parsed.day}, {parsed.year}"
+
+
+def report_window_label(window: dict[str, Any]) -> str:
+    start = report_date_label(window.get("start"))
+    end = report_date_label(window.get("end"))
+    if start == "unknown" and end == "unknown":
+        return "Current reporting window"
+    return f"{start} to {end}"
+
+
+def report_item_subset(items: Any, limit: int) -> list[dict[str, Any]]:
+    if not isinstance(items, list):
+        return []
+    selected: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        title = compact_text(item.get("title"))
+        summary = compact_text(item.get("summary") or item.get("basis") or item.get("recommended_action"))
+        if not title and not summary:
+            continue
+        selected.append(item)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def report_followup_subset(items: Any, limit: int) -> list[dict[str, Any]]:
+    if not isinstance(items, list):
+        return []
+    selected: list[dict[str, Any]] = []
+    internal_types = {"review", "source-coverage"}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if compact_text(item.get("type")) in internal_types:
+            continue
+        title = compact_text(item.get("title"))
+        summary = compact_text(item.get("basis") or item.get("recommended_action") or item.get("summary"))
+        if not title and not summary:
+            continue
+        selected.append(item)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def render_item_cards(items: list[dict[str, Any]], empty_text: str) -> str:
+    if not items:
+        return f'<p class="muted">{html.escape(empty_text)}</p>'
+    blocks: list[str] = []
+    for item in items:
+        title = compact_text(item.get("title") or "Update")
+        summary = compact_text(item.get("summary") or item.get("basis") or item.get("recommended_action"))
+        confidence = compact_text(item.get("confidence"))
+        confidence_html = f'<span class="confidence">{html.escape(confidence)} confidence</span>' if confidence else ""
+        blocks.append(
+            "\n".join([
+                '<article class="item">',
+                f"<h3>{html.escape(title)}</h3>",
+                f"<p>{html.escape(summary)}</p>" if summary else "",
+                confidence_html,
+                "</article>",
+            ])
         )
-    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
-        raise RuntimeError("Could not render report HTML with pandoc.") from exc
+    return "\n".join(blocks)
+
+
+def source_coverage_brief(payload: dict[str, Any]) -> tuple[str, str]:
+    evidence_summary = payload.get("evidence_summary", {})
+    confirmed_by_source = nested_dict(evidence_summary, "confirmed_by_source")
+    used_sources = sorted(source for source, count in confirmed_by_source.items() if count)
+    source_text = ", ".join(used_sources) if used_sources else "No confirmed source mix recorded"
+
+    coverage = payload.get("source_coverage", [])
+    gaps: list[str] = []
+    if isinstance(coverage, list):
+        for row in coverage:
+            if not isinstance(row, dict):
+                continue
+            status = compact_text(row.get("reader_status"))
+            if status == "implemented":
+                continue
+            source = compact_text(row.get("source") or "Unknown source")
+            reason = compact_text(row.get("skip_reason"))
+            gaps.append(f"{source}: {reason or status or 'not implemented'}")
+    gap_text = "; ".join(gaps[:3]) if gaps else "No major source coverage gaps recorded."
+    return source_text, gap_text
+
+
+def render_management_report_html(payload: dict[str, Any], html_path_value: Path) -> WriteResult:
+    title = compact_text(payload.get("project_display_name") or payload.get("project") or "Project")
+    window = payload.get("window") if isinstance(payload.get("window"), dict) else {}
+    sections = payload.get("sections") if isinstance(payload.get("sections"), dict) else {}
+    source_synthesis = payload.get("source_synthesis") if isinstance(payload.get("source_synthesis"), dict) else {}
+
+    tl_dr = report_item_subset(sections.get("tl_dr"), 3)
+    shipped = report_item_subset(sections.get("shipped_deployed"), 3)
+    stakeholder = report_item_subset(sections.get("client_stakeholder_signals"), 2)
+    risks = report_item_subset(sections.get("risks_blockers_open_questions"), 3)
+    followups = report_followup_subset(sections.get("suggested_followups"), 3)
+    source_text, gap_text = source_coverage_brief(payload)
+
+    lead_title = compact_text(tl_dr[0].get("title")) if tl_dr else "No executive summary was available."
+    lead_summary = compact_text(tl_dr[0].get("summary")) if tl_dr else ""
+    generated = report_date_label(payload.get("generated_at"))
+    confidence = compact_text(source_synthesis.get("confidence") or "unknown")
+
+    remaining_summary = "\n".join(
+        f"<p>{html.escape(compact_text(item.get('summary') or item.get('title')))}</p>"
+        for item in tl_dr[1:]
+        if compact_text(item.get("summary") or item.get("title"))
+    )
 
     css = """
-body { color: #15171a; font-family: Inter, Arial, sans-serif; font-size: 12px; line-height: 1.42; margin: 0; }
-h1 { border-bottom: 2px solid #111827; font-size: 24px; margin-bottom: 16px; padding-bottom: 10px; }
-h2 { border-top: 1px solid #d7dce2; font-size: 17px; margin-top: 24px; padding-top: 16px; }
-h3 { font-size: 13px; margin-bottom: 6px; }
-code { background: #f2f4f7; border-radius: 3px; font-size: 11px; padding: 1px 4px; }
-table { border-collapse: collapse; width: 100%; }
-th, td { border-bottom: 1px solid #e1e5ea; padding: 6px; text-align: left; vertical-align: top; }
-blockquote { border-left: 3px solid #b8c0cc; color: #4b5563; margin-left: 0; padding-left: 12px; }
-@page { size: A4; margin: 14mm 12mm; }
-@media print { h2 { break-before: auto; } h3, table { break-inside: avoid; } }
+@page { size: A4; margin: 13mm 12mm; }
+* { box-sizing: border-box; }
+body {
+  color: #20242a;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 10.8pt;
+  line-height: 1.38;
+  margin: 0;
+}
+.report { max-width: 780px; margin: 0 auto; }
+.eyebrow { color: #667085; font-size: 8.5pt; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+h1 { color: #111827; font-size: 24pt; line-height: 1.08; margin: 6px 0 8px; }
+h2 { color: #111827; font-size: 12.5pt; margin: 16px 0 8px; padding-top: 8px; border-top: 1px solid #d9dee7; }
+h3 { color: #1f2937; font-size: 10.7pt; margin: 0 0 4px; }
+p { margin: 0 0 8px; }
+.meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 14px; }
+.pill { background: #eef2f6; border: 1px solid #d9e0ea; border-radius: 999px; color: #344054; font-size: 8.7pt; padding: 4px 8px; }
+.lead { border-left: 4px solid #2563eb; margin: 10px 0 14px; padding: 0 0 0 12px; }
+.lead h2 { border: 0; font-size: 15pt; margin: 0 0 6px; padding: 0; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.item { break-inside: avoid; margin: 0 0 9px; padding: 0; }
+.item p { color: #374151; }
+.confidence { color: #667085; display: inline-block; font-size: 8.6pt; margin-top: -2px; }
+.callout { background: #f7f9fb; border: 1px solid #dbe3ed; border-radius: 6px; margin-top: 10px; padding: 10px 12px; }
+.muted { color: #667085; }
+.footer-note { color: #667085; font-size: 8.5pt; margin-top: 12px; }
+@media print {
+  h2, h3, .item, .callout { break-inside: avoid; }
+  .page-break-avoid { break-inside: avoid; }
+}
 """
     document = "\n".join([
         "<!doctype html>",
         "<html>",
         "<head>",
         '<meta charset="utf-8">',
-        f"<title>{html.escape(title)}</title>",
+        f"<title>State of Project Brief: {html.escape(title)}</title>",
         f"<style>{css}</style>",
         "</head>",
         "<body>",
-        completed.stdout,
+        '<main class="report">',
+        '<div class="eyebrow">State of Project Brief</div>',
+        f"<h1>{html.escape(title)}</h1>",
+        '<section class="meta">',
+        f'<span class="pill">Window: {html.escape(report_window_label(window))}</span>',
+        f'<span class="pill">Generated: {html.escape(generated)}</span>',
+        f'<span class="pill">Confidence: {html.escape(confidence)}</span>',
+        f'<span class="pill">Sources: {html.escape(source_text)}</span>',
+        "</section>",
+        '<section class="lead">',
+        f"<h2>{html.escape(lead_title)}</h2>",
+        f"<p>{html.escape(lead_summary)}</p>" if lead_summary else "",
+        remaining_summary,
+        "</section>",
+        '<section class="grid">',
+        '<div class="page-break-avoid">',
+        "<h2>Work Completed</h2>",
+        render_item_cards(shipped, "No shipped or deployed work was summarized for this window."),
+        "</div>",
+        '<div class="page-break-avoid">',
+        "<h2>Client Signals</h2>",
+        render_item_cards(stakeholder, "No client or stakeholder signal was summarized for this window."),
+        "</div>",
+        "</section>",
+        "<h2>Risks, Blockers, And Open Questions</h2>",
+        render_item_cards(risks, "No material risks, blockers, or open questions were summarized for this window."),
+        "<h2>Recommended Next Actions</h2>",
+        render_item_cards(followups, "No follow-up actions were suggested for this window."),
+        '<section class="callout">',
+        "<h2>Coverage Notes</h2>",
+        f"<p>{html.escape(gap_text)}</p>",
+        '<p class="footer-note">Detailed source audit and provenance remain in the canonical JSON and Markdown artifacts for agent review.</p>',
+        "</section>",
+        "</main>",
         "</body>",
         "</html>",
         "",
@@ -4254,11 +4418,7 @@ def write_state_report(args: argparse.Namespace) -> int:
         pdf_result: WriteResult | None = None
         preview_result: WriteResult | None = None
         if not args.no_pdf:
-            html_result = render_report_html(
-                markdown_output,
-                html_output,
-                f"State of Project: {report_payload.get('project_display_name')}",
-            )
+            html_result = render_management_report_html(report_payload, html_output)
             pdf_result, preview_result = render_report_pdf(
                 html_output,
                 pdf_output,
