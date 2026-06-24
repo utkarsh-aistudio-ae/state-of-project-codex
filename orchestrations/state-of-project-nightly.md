@@ -1,34 +1,37 @@
 # State Of Project Nightly
 
-Last updated: 2026-06-23
+Last updated: 2026-06-24
 
-This is the current orchestration recipe for shared data capture plus one named
-project report. It is not a navigator. It exists because there is currently one
-primary workflow family and its skills/tools are local to this workflow.
+This is the current orchestration recipe for cursor-governed data capture plus
+one named project report. It is not a navigator. It exists because there is
+currently one primary workflow family and its skills/tools are local to this
+workflow.
 
 ## Purpose
 
-Capture source data once per relevant source window/entity, then produce a
-private state-of-project report for one canonical project tag using the
-filesystem-first Project Intel contracts.
+Capture source data once per relevant cursor window/entity, tag only
+cursor-selected source artifacts that need work, then produce a private
+state-of-project report for one canonical project tag using the filesystem-first
+Project Intel contracts.
 
 ## Trigger
 
-An external scheduler or a human runs shared ingestion once:
+An external scheduler or a human runs data ingestion:
 
 ```bash
 python3 scripts/project_intel.py run-data-fetch
 ```
 
-Project-specific reporting runs after shared source logs are fetched and tagged:
+Project-specific reporting runs after the relevant source logs are fetched and
+tagged:
 
 ```bash
 python3 scripts/project_intel.py run-state-report <Project-tag>
 ```
 
-The scheduler owns timing. Project Intel owns the run contract, source cursors,
-report cursors, manifests, source coverage, validation, extraction, and private
-artifacts.
+The scheduler owns timing. Project Intel owns the run contract, fetch cursors,
+tagging cursors, report cursors, manifests, source coverage, validation,
+extraction, and private artifacts.
 
 ## Sources And Contracts
 
@@ -56,19 +59,24 @@ Future concepts:
 
 ## Ordered Steps
 
-1. Compute shared source fetch windows from filesystem cursors.
-2. Build the data-fetch plan from `source-families.yaml`.
+1. Load source-family cursor policy and active project profiles.
+2. Compute fetch windows from filesystem cursors: source-linked for broad
+   shared datasources, project-linked for project-specific source entities, and
+   entity-dependent for mixed sources.
 3. Run implemented source readers. GitHub and Gmail are currently implemented.
    Gmail is broad shared-source ingestion; GitHub is project-profile-driven
    source-entity ingestion. Fireflies batch discovery, Drive, and
    deployment-provider-specific readers remain source coverage gaps until their
    readers exist.
-4. Build the derived source-artifact tagging worklist from untouched/tagged
-   files, source hashes, registry hash, and tagger metadata.
+4. Build the derived source-artifact tagging worklist from the cursor-selected
+   candidate set, untouched/tagged files, source hashes, registry state, and
+   tagger metadata.
 5. If worklist items need tagging, run `project-tagger` only on items where
    `work_required: true`; skip `current` items. Tagging may operate on broad
-   shared artifacts or project-scoped source entities, but it is not repeated
-   just because another report is being generated.
+   shared artifacts or project-scoped source entities. For existing registry
+   projects, shared-resource tagging is source-linked. For a newly added
+   canonical project, shared-resource tagging uses the default seven-day
+   lookback. For project-specific resources, tagging is project-linked.
 6. Confirm the report project tag exists and is active.
 7. Validate tagged logs.
 8. Extract tagged evidence records.
@@ -77,8 +85,9 @@ Future concepts:
 11. Future: run `project-state-synthesizer`, then `state-report-writer`, then
     PDF rendering.
 12. Write manifest.
-13. Advance source cursors after successful source fetches; advance report
-    cursor only when the report stage succeeds.
+13. Advance fetch cursors after successful source fetches; advance tagging
+    cursors after successful tagging for their selected candidate set; advance
+    report cursor only when the report stage succeeds.
 
 ## Branches
 
@@ -86,7 +95,7 @@ Future concepts:
   was checked.
 - If source coverage gaps exist, record them in the data-fetch manifest.
 - If tagging is required, stop report generation before validation/extraction
-  until the shared tagging worklist is current.
+  until the cursor-selected tagging worklist is current.
 - If validation fails, stop before extraction/reporting.
 - If uncertain evidence exists, include it in review sections; do not use it as
   authoritative source for timeline entries or tickets.
@@ -116,6 +125,8 @@ data/reports/<Project-tag>/<YYYY-MM-DD>/<run-id>_state-of-project.pdf
   ambiguity.
 - Do not create a durable queue in the current filesystem-first prototype.
 - Do not fetch shared datasources once per project report.
+- Do not let a global source cursor cause a newly added project to miss its
+  default initial window for project-specific resources.
 - Do not create tickets, send emails, post messages, update deployments, or push
   code from this workflow.
 - Do not commit private runtime artifacts.

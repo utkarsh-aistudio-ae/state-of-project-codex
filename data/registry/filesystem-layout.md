@@ -1,6 +1,6 @@
 # Filesystem Layout
 
-Last updated: 2026-06-23
+Last updated: 2026-06-24
 
 This file is the source of truth for Project Intel source-log storage.
 
@@ -64,9 +64,11 @@ data/raw/tagged/Gmail/2026-06/2026-06-22/thread_19eef41d92cf4e40_1500.md
 ## Retagging Policy
 
 When a new canonical project is added to the registry, retag all source logs
-from the last seven days by default. Older backfill is explicit and can be
-requested later by date range or project.
+from shared resources in the last seven days by default. Older backfill is
+explicit and can be requested later by date range or project. Project-specific
+resources use project-linked tagging cursors so repo/deployment/document-folder
+evidence can be processed in the project context.
 
 When an existing project profile changes materially, retag the last seven days,
-files already tagged or uncertain for that project, and any files manually
-selected for review.
+files already tagged or uncertain for that project, project-linked source
+entities for that project, and any files manually selected for review.

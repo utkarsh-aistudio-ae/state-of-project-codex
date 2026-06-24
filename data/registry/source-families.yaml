@@ -1,11 +1,23 @@
 version: 1
-updated_at: "2026-06-23T00:00:00Z"
+updated_at: "2026-06-24T00:00:00Z"
+cursor_policy:
+  fetch:
+    shared_source: source_linked
+    source_entity: project_linked
+    mixed_source: source_or_project_linked_by_entity
+  tagging:
+    shared_source_existing_project: source_linked
+    shared_source_new_project_initial_lookback_days: 7
+    source_entity: project_linked
+    mixed_source: source_or_project_linked_by_entity
 source_families:
   - name: GitHub
     default_data_fetch: true
     reader_status: implemented
     source_class: mixed
     cursor_scope: source_entity
+    fetch_cursor_owner: project_linked
+    tagging_cursor_owner: project_linked
     source_entity_key: repo
     lookback_overlap_hours: 48
     reader:
@@ -35,6 +47,8 @@ source_families:
     reader_status: implemented
     source_class: canonical
     cursor_scope: shared_source
+    fetch_cursor_owner: source_linked
+    tagging_cursor_owner: source_linked
     source_entity_key: thread_id
     lookback_overlap_hours: 48
     reader:
@@ -62,6 +76,8 @@ source_families:
     reader_status: single_fetch_only
     source_class: canonical
     cursor_scope: shared_source
+    fetch_cursor_owner: source_linked
+    tagging_cursor_owner: source_linked
     source_entity_key: transcript_id
     lookback_overlap_hours: 48
     canonical_for:
@@ -82,6 +98,8 @@ source_families:
     reader_status: planned
     source_class: mixed
     cursor_scope: mixed_source
+    fetch_cursor_owner: source_or_project_linked_by_entity
+    tagging_cursor_owner: source_or_project_linked_by_entity
     source_entity_key: drive_file_or_folder_id
     lookback_overlap_hours: 48
     canonical_for:
@@ -102,6 +120,8 @@ source_families:
     reader_status: planned
     source_class: canonical
     cursor_scope: source_entity
+    fetch_cursor_owner: project_linked
+    tagging_cursor_owner: project_linked
     source_entity_key: provider_project_or_environment
     lookback_overlap_hours: 48
     canonical_for:

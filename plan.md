@@ -1,6 +1,6 @@
 # Project Intel Codex Automation Plan
 
-Last updated: 2026-06-23
+Last updated: 2026-06-24
 
 This file is the implementation handoff plan for the local Codex automation.
 For the long-term product vision, read:
@@ -92,10 +92,13 @@ that make source state, tagging state, or evidence provenance ambiguous.
 Fetching and tagging are source-artifact/source-entity stages. Some units are
 broad shared conversations; some are naturally project-scoped entities such as
 repos, deployment projects, Notion spaces, or client folders. They should not run
-again merely because another project report is generated. Readers use source
-cursors and `seen_keys` to avoid duplicating already-seen artifacts/entities;
-tagging uses source hashes, registry hashes, and tagged metadata to process only
-source logs where work is actually required.
+again merely because another project report is generated. Shared resources use
+source-linked cursors; project-specific resources use project-linked cursors.
+When a new canonical project is added, shared-resource tagging starts from the
+previous seven days by default. Readers use cursors and `seen_keys` to avoid
+duplicating already-seen artifacts/entities; tagging uses cursor-selected
+candidate sets, source hashes, registry state, and tagged metadata to process
+only source logs where work is actually required.
 
 First target artifact:
 
@@ -129,9 +132,9 @@ Supported annotation forms:
 Current reader status:
 
 - Fireflies: single-transcript fetch implemented.
-- Gmail: registry-driven shared thread reader implemented through
+- Gmail: registry-driven shared-thread reader implemented through
   `bin/gog-sharad` and `data/registry/source-families.yaml`.
-- GitHub: registry-driven shared repo reader implemented through
+- GitHub: registry-driven project-profile repo reader implemented through
   `bin/gh-sharad`, project repos in `project-tags.yaml`, and reader limits in
   `source-families.yaml`.
 - Drive, Fireflies batch discovery, and deployment-provider-specific readers:
@@ -413,21 +416,22 @@ python3 scripts/project_intel.py run-data-fetch
 python3 scripts/project_intel.py run-state-report Argos-ddt
 ```
 
-The external scheduler owns timing. `run-data-fetch` computes shared source
-cursor windows, reads default data-fetch sources from
+The external scheduler owns timing. `run-data-fetch` computes cursor-selected
+source windows, reads default data-fetch sources from
 `data/registry/source-families.yaml`, records source coverage gaps for
 unimplemented batch readers, writes untouched logs, writes a private run
-manifest, and advances shared source cursors after successful source capture.
+manifest, and advances fetch cursors after successful source capture.
 
 `run-state-report <Project-tag>` is project-specific. It does not fetch
 datasources and does not retag current source logs. It requires the derived
-source-artifact tagging worklist to be clear, validates/extracts evidence,
-writes a private state-of-project report, writes a private run manifest, and
-advances only the project report cursor when the report stage succeeds.
+cursor-selected source-artifact tagging worklist to be clear,
+validates/extracts evidence, writes a private state-of-project report, writes a
+private run manifest, and advances only the project report cursor when the
+report stage succeeds.
 
 Skeleton responsibilities:
 
-- call the relevant reader during shared data fetch
+- call the relevant reader during cursor-governed data fetch
 - create the untouched path
 - show a derived tagging worklist via the `queue` command
 - run the deterministic tag helper to prepare/update tagged copy metadata
@@ -903,8 +907,9 @@ Discovery policy:
 
 After registry update:
 
-- retag all source logs from the last seven days when a new canonical project is
-  added
+- retag shared-resource source logs from the last seven days when a new
+  canonical project is added
+- use project-linked tagging cursors for project-specific resources
 - retag files already tagged or uncertain for that project when a profile
   changes materially
 - support explicit older backfill by date range, source, or project
@@ -933,6 +938,10 @@ should remain separate from the tagger conceptually.
 Responsibilities:
 
 - maintain `data/registry/project-tags.yaml`
+- record enough semantic change information to distinguish a new canonical
+  project from an existing project profile update
+- expose per-project profile versions or equivalent hashes so tagging cursors
+  do not depend only on the whole registry file hash
 - dedupe aliases
 - reject or park near-duplicates
 - mark canonical tags active/proposed/merged/rejected/archived if the schema

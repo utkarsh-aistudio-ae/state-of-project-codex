@@ -19,6 +19,12 @@ tag once per source artifact or source entity state, not once per report run.
 Project-specific reports consume extracted tagged evidence after tagging is
 current.
 
+Cursor ownership controls which source logs are candidates for tagging:
+source-linked for shared resources and existing registry projects, seven-day
+shared-resource lookback for newly added canonical projects, and project-linked
+for project-specific resources. The tagger still edits only the tagged copy of
+each candidate source log.
+
 ## Workflow
 
 1. Run `python3 scripts/project_intel.py queue` to see the derived tagging
@@ -55,7 +61,7 @@ current.
 
 ## Work Avoidance
 
-The effective tagging cursor is the tagged file frontmatter:
+The effective per-file tagging cursor is the tagged file frontmatter:
 
 - `source_content_hash`
 - `registry_hash`
@@ -65,10 +71,14 @@ The effective tagging cursor is the tagged file frontmatter:
 
 Do not create duplicate tagged copies for repeated project reports. Do not
 retag a source log just because a project report is being generated. If `queue`
-says the source log is `current`, leave it alone. If a source artifact has
-candidate projects in `fetch_context.project_candidates`, treat that as routing
-context only; it is not a project annotation and it does not remove the need for
-block-level judgment.
+says the source log is `current`, leave it alone.
+
+For a newly added canonical project, process shared-resource candidates from
+the default seven-day lookback unless an explicit older backfill is requested.
+For project-specific resources, follow the project-linked tagging cursor. If a
+source artifact has candidate projects in `fetch_context.project_candidates`,
+treat that as routing context only; it is not a project annotation and it does
+not remove the need for block-level judgment.
 
 ## Tagged File Metadata
 
@@ -110,8 +120,9 @@ registry fields as follows:
   context only.
 - `untagged` means the content is not assigned to a project in the current
   registry. It does not mean useless forever.
-- Future registry changes should be handled through `stale_registry` retagging,
-  not by overloading `needs_review`.
+- Future registry changes should be handled through cursor-scoped retagging
+  such as `new_project_added` or `project_profile_changed`, not by overloading
+  `needs_review`.
 
 ## Safety
 

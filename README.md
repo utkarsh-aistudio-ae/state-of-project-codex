@@ -103,10 +103,10 @@ python3 scripts/project_intel.py run-data-fetch
 python3 scripts/project_intel.py run-state-report Argos-ddt
 ```
 
-The external scheduler owns timing. `run-data-fetch` computes shared source
-cursors/windows, reads data-fetch source families from
+The external scheduler owns timing. `run-data-fetch` computes cursor-selected
+source windows, reads data-fetch source families from
 `data/registry/source-families.yaml`, writes untouched source logs, advances
-shared source cursors after successful capture, and records a private manifest.
+fetch cursors after successful capture, and records a private manifest.
 `run-state-report <Project-tag>` checks the derived tagging worklist,
 validates/extracts tagged evidence, writes a private report under
 `data/reports/`, records a private manifest under `logs/runs/`, and advances the
@@ -114,9 +114,10 @@ project report cursor after the report stage succeeds.
 
 Fetching and tagging are source-artifact/source-entity stages. Some artifacts
 are broad shared conversations; others are project-scoped entities such as repos
-or deployment projects. Source cursors and tagged metadata decide whether work
-is required; project reports should not cause duplicate fetches or duplicate
-tagging passes.
+or deployment projects. Source-linked cursors handle shared resources;
+project-linked cursors handle project-specific resources; newly added projects
+get a default seven-day shared-resource tagging window. Project reports should
+not cause duplicate fetches or duplicate tagging passes.
 
 The current orchestration recipe is:
 

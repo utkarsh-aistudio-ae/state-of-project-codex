@@ -1,12 +1,12 @@
 ---
 name: run-state-of-project
-description: Run the Project Intel filesystem-first state-of-project workflow. Use when Codex needs to execute or review shared data fetches, project-specific report runs, tagging worklists, validation, extraction, report generation, cursors, manifests, and source coverage gaps.
+description: Run the Project Intel filesystem-first state-of-project workflow. Use when Codex needs to execute or review data fetches, project-specific report runs, tagging worklists, validation, extraction, report generation, cursors, manifests, and source coverage gaps.
 ---
 
 # Run State Of Project
 
 Use this skill for the current filesystem-first state-of-project workflow. The
-external scheduler chooses when to run shared data fetches and when to generate
+external scheduler chooses when to run data fetches and when to generate
 project-specific reports.
 
 Codex owns intelligent steps such as tagging and report judgment. Deterministic
@@ -21,16 +21,20 @@ orchestrations/state-of-project-nightly.md
 
 ## Workflow
 
-1. Run shared source ingestion once for the source window:
+1. Run source ingestion for the cursor-selected windows:
 
    ```bash
    python3 scripts/project_intel.py run-data-fetch
    ```
 
+   Shared datasources use source-linked fetch cursors. Project-specific source
+   entities use project-linked fetch cursors.
 2. If the derived worklist has non-current items, run the `project-tagger` skill
    on the blocking untouched logs listed by `queue` or the manifest. Tagging is
-   source-artifact/source-entity work: process only items with
-   `work_required: true` and skip `current` items.
+   source-artifact/source-entity work with cursor ownership: source-linked for
+   shared resources and existing projects, seven-day shared-resource lookback
+   for newly added projects, and project-linked for project-specific resources.
+   Process only items with `work_required: true` and skip `current` items.
 3. Confirm the project tag exists in `data/registry/project-tags.yaml`.
 4. Run:
 
@@ -47,13 +51,13 @@ orchestrations/state-of-project-nightly.md
 
 ## Current Behavior
 
-The current deterministic CLI separates shared data fetching from
-project-specific reporting. `run-data-fetch` computes shared source fetch
-windows, reads default data-fetch sources from
-`data/registry/source-families.yaml`, runs implemented source readers, and
-records source coverage gaps for unavailable or not-yet-implemented readers.
-`run-state-report <Project-tag>` validates/extracts already-tagged evidence and
-writes the project-specific private report.
+The current deterministic CLI separates data fetching from project-specific
+reporting. `run-data-fetch` reads default data-fetch sources from
+`data/registry/source-families.yaml`, computes cursor-selected fetch windows,
+runs implemented source readers, and records source coverage gaps for
+unavailable or not-yet-implemented readers. `run-state-report <Project-tag>`
+validates/extracts already-tagged evidence and writes the project-specific
+private report.
 
 Current implemented batch readers:
 
@@ -75,12 +79,13 @@ The `queue` command is a derived filesystem worklist, not a durable queue. The
 report cursor advances only after the derived worklist is clear, validation
 passes, extraction succeeds, and the private report is written.
 
-Tagging uses source content hashes and registry hashes as its per-artifact
-cursor. It should not run once per project report, and it should not duplicate
-work for source artifacts or project-scoped source entities that are already
-current. A source artifact is retagged only when its source hash changes, the
-project registry changes, the tagged copy is missing/prepared, or the tagger
-explicitly marked the file failed or in need of review.
+Tagging uses cursor-selected candidate sets plus source content hashes and
+registry state as its per-artifact proof of currency. It should not run once per
+project report, and it should not duplicate work for source artifacts or
+project-scoped source entities that are already current. A source artifact is
+retagged only when it is inside the relevant cursor window and its source hash
+changes, relevant registry state changes, the tagged copy is missing/prepared,
+or the tagger explicitly marked the file failed or in need of review.
 
 ## Safety
 

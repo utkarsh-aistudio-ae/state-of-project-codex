@@ -1,9 +1,9 @@
 # Scheduled Run Contract
 
-Last updated: 2026-06-23
+Last updated: 2026-06-24
 
-Project Intel does not own scheduling yet. An external scheduler triggers shared
-data fetches and project-specific report runs:
+Project Intel does not own scheduling yet. An external scheduler triggers
+data-fetch runs and project-specific report runs:
 
 ```bash
 python3 scripts/project_intel.py run-data-fetch
@@ -61,11 +61,19 @@ The current CLI assumes:
 
 - Source cursors advance only after a source fetch succeeds and untouched logs
   are safely written.
-- Source cursors are scoped to shared data-fetch source families, not individual
-  project reports.
-- Tagging is scoped to source artifacts or project-scoped source entities, not
-  individual report renderings. The derived worklist and tagged metadata decide
-  whether tagging work is required.
+- Fetch cursor ownership follows the source family contract: source-linked for
+  broad shared datasources, project-linked for project-specific source
+  entities, and entity-dependent for mixed sources.
+- Shared-source fetch cursors are not individual project report cursors.
+  Project-linked source cursors are valid for project-specific resources and
+  prevent newly added projects from inheriting old global source windows.
+- Tagging cursor ownership follows the same source shape with one extra rule:
+  shared resources use source-linked tagging cursors for existing registry
+  projects, but a newly added canonical project starts with a seven-day
+  shared-source retag window by default.
+- Tagging is scoped to source artifacts or project-specific source entities, not
+  individual report renderings. The derived worklist, cursor-selected candidate
+  set, and tagged metadata decide whether tagging work is required.
 - The report cursor advances only when the derived tagging worklist is clear,
   validation passes, extraction succeeds, and report generation succeeds.
 - Runs with skipped source readers may write private data-fetch manifests; the

@@ -1,6 +1,6 @@
 # Project Intel Vision
 
-Last updated: 2026-06-23
+Last updated: 2026-06-24
 
 Working directory:
 
@@ -93,7 +93,10 @@ Durable principles:
   report-rendering work. Some units are broad shared conversations; others are
   project-scoped entities such as repos, deployment projects, Notion spaces, or
   client folders. Stable source identities, cursors, source hashes, and registry
-  hashes should prevent duplicate fetching or duplicate tagging.
+  state should prevent duplicate fetching or duplicate tagging. Cursor ownership
+  should follow source shape: source-linked for shared resources,
+  project-linked for project-specific resources, and a seven-day shared-resource
+  tagging window when a new canonical project is added.
 - Treat user corrections as product inputs. Durable process corrections should
   be normalized, routed to the right owner, patched minimally, and validated
   instead of being left only in chat.
@@ -379,9 +382,10 @@ The skill should:
 7. Propose a project profile.
 8. Ask a human to confirm.
 9. Hand the confirmed profile to the `project-tag-registry` skill.
-10. Trigger retagging of source logs from the last seven days when a new
-   canonical project is added. Older backfills should be explicit by date range,
-   source, or project.
+10. Trigger retagging of shared source logs from the last seven days when a new
+    canonical project is added. Project-specific resources should use
+    project-linked tagging cursors. Older backfills should be explicit by date
+    range, source, or project.
 
 Discovery proposes. Registry canonicalizes. Tagger obeys.
 
@@ -438,7 +442,7 @@ or issue creation at the beginning.
 Long-term orchestration topics to discuss explicitly before implementation:
 
 - CLI vs app automation vs service vs CI responsibilities
-- source cursor and deduplication ownership
+- fetch cursor, tagging cursor, and deduplication ownership
 - queue/index/cache storage and rebuild rules
 - run manifest and audit-log schema
 - retry, backoff, and partial-failure semantics
@@ -455,13 +459,13 @@ Current nightly data-fetch/report skeleton:
 
 ```text
 external scheduler -> run-data-fetch
-  -> compute shared source windows from filesystem cursors
+  -> compute source-linked and project-linked fetch windows from filesystem cursors
   -> read data-fetch source families from data/registry/source-families.yaml
-  -> run implemented shared source readers once per source window
+  -> run implemented source readers once per relevant cursor window/entity
   -> record source coverage gaps for unimplemented batch readers
 
 external scheduler or follow-on step -> run-state-report <Project-tag>
-  -> require clear tagging worklist
+  -> require clear cursor-selected tagging worklist
   -> validate tagged logs
   -> extract evidence JSONL
   -> generate private state-of-project report
