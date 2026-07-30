@@ -5,6 +5,8 @@ for the State of Project automation. It distinguishes external scheduling,
 deterministic filesystem/CLI plumbing, Codex intelligence skills, registry
 contracts, private runtime artifacts, and future read-only action auditing.
 
+For a simpler module-first view, see `architecture-modular.md`.
+
 ## Component Architecture
 
 ```mermaid
