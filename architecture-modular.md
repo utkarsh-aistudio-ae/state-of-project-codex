@@ -124,41 +124,98 @@ flowchart TB
   classDef deterministic fill:#ecfeff,stroke:#0891b2,color:#0f172a
   classDef codex fill:#f0fdf4,stroke:#16a34a,color:#0f172a
   classDef artifact fill:#fff7ed,stroke:#f97316,color:#111827
+  classDef cursor fill:#fefce8,stroke:#ca8a04,color:#111827
   classDef future fill:#faf5ff,stroke:#9333ea,color:#111827
 
   Sources["Shared and project-linked sources"]:::source
+  CursorPolicy["Cursor policy from registries<br/>source-linked, project-linked,<br/>or entity-dependent"]:::cursor
+  FetchCursor["Fetch cursors<br/>last successful capture<br/>and seen source/entity keys"]:::cursor
   Fetch["Fetch once per cursor window/entity"]:::deterministic
   Untouched["Untouched Markdown source logs"]:::artifact
+  TagCursor["Tagging cursors<br/>selected candidate windows,<br/>source hashes, registry state"]:::cursor
   Worklist["Derived worklist from cursors, hashes, registry state"]:::deterministic
   Tag["Codex tagging into canonical project annotations"]:::codex
   Tagged["Tagged Markdown copies"]:::artifact
   Extract["Validate and extract evidence records"]:::deterministic
+  ReportCursor["Report cursor<br/>project window for synthesis<br/>advances only after report success"]:::cursor
   Synthesize["Codex synthesis of project state"]:::codex
   Report["Report writer creates audit report and management brief"]:::codex
+  Manifest["Run manifest<br/>records cursor movement,<br/>skips, failures, coverage gaps"]:::artifact
   Actions["Future read-only action audit"]:::future
 
+  CursorPolicy --> FetchCursor
+  CursorPolicy --> TagCursor
+  CursorPolicy --> ReportCursor
   Sources --> Fetch
+  FetchCursor --> Fetch
   Fetch --> Untouched
+  Fetch --> Manifest
+  Fetch -->|"advance after successful source capture"| FetchCursor
   Untouched --> Worklist
+  TagCursor --> Worklist
   Worklist --> Tag
   Tag --> Tagged
+  Tag -->|"advance after selected tagging set succeeds"| TagCursor
   Tagged --> Extract
+  Extract --> Manifest
+  ReportCursor --> Synthesize
   Extract --> Synthesize
   Synthesize --> Report
+  Report --> Manifest
+  Report -->|"advance after successful report generation"| ReportCursor
   Report --> Actions
 
   Registry["Registry and contracts guide every stage"]:::artifact
-  RuntimeState["Cursors and manifests make runs reproducible"]:::artifact
 
+  Registry -.-> CursorPolicy
   Registry -.-> Fetch
   Registry -.-> Worklist
   Registry -.-> Tag
   Registry -.-> Synthesize
   Registry -.-> Report
+```
 
-  RuntimeState -.-> Fetch
-  RuntimeState -.-> Worklist
-  RuntimeState -.-> Report
+## New Project Initiation
+
+```mermaid
+flowchart TB
+  classDef human fill:#f8fafc,stroke:#94a3b8,color:#0f172a
+  classDef deterministic fill:#ecfeff,stroke:#0891b2,color:#0f172a
+  classDef codex fill:#f0fdf4,stroke:#16a34a,color:#0f172a
+  classDef registry fill:#eef2ff,stroke:#6366f1,color:#111827
+  classDef artifact fill:#fff7ed,stroke:#f97316,color:#111827
+  classDef review fill:#fef2f2,stroke:#dc2626,color:#111827
+
+  Seed["Human seed<br/>project name, repo, people,<br/>keywords, domains, deployments"]:::human
+  Dedupe["Check project registry<br/>canonical tags, aliases,<br/>near-duplicate project profiles"]:::deterministic
+  RepoAnchor{"Repo anchor exists?"}:::deterministic
+  GitHubFirst["GitHub-first discovery<br/>repos, READMEs, commits,<br/>issues, PRs, branches, deployments"]:::deterministic
+  NewProjectWindow["No repo anchor<br/>default to previous 7 days<br/>of conversations and docs"]:::deterministic
+  FirefliesMetadata["Fireflies metadata first<br/>titles, participants, summaries,<br/>topics, action items, chapters"]:::deterministic
+  MultiSourceDiscovery["Discover across available sources<br/>Gmail, GitHub, Fireflies metadata,<br/>Drive, deployments, local state"]:::deterministic
+  ProfileDraft["Candidate project profile<br/>description, aliases, strong/weak signals,<br/>resources, confidence, open questions"]:::artifact
+  HumanReview{"Human confirms canonical project?"}:::human
+  RegistryUpdate["project-tag-registry<br/>canonicalizes profile<br/>and writes governed registry diff"]:::registry
+  ReviewOnly["Review only<br/>no canonical project tag<br/>no project-linked fetch/tag cursors"]:::review
+  RetagPolicy["Initial retag policy<br/>shared sources: previous 7 days<br/>project-specific resources: project-linked cursors<br/>older backfill: explicit"]:::deterministic
+  TaggerObeys["project-tagger obeys registry<br/>creates/updates tagged copies<br/>with canonical annotations"]:::codex
+  ReportVisibility["State report visibility<br/>uncertain candidates and coverage gaps<br/>stay visible, not authoritative"]:::artifact
+
+  Seed --> Dedupe
+  Dedupe --> RepoAnchor
+  RepoAnchor -->|"yes"| GitHubFirst
+  RepoAnchor -->|"no"| NewProjectWindow
+  NewProjectWindow --> FirefliesMetadata
+  GitHubFirst --> MultiSourceDiscovery
+  FirefliesMetadata --> MultiSourceDiscovery
+  MultiSourceDiscovery --> ProfileDraft
+  ProfileDraft --> HumanReview
+  HumanReview -->|"confirmed"| RegistryUpdate
+  HumanReview -->|"uncertain or rejected"| ReviewOnly
+  RegistryUpdate --> RetagPolicy
+  RetagPolicy --> TaggerObeys
+  ReviewOnly --> ReportVisibility
+  TaggerObeys --> ReportVisibility
 ```
 
 ## Responsibility Split
@@ -192,9 +249,14 @@ flowchart LR
   window; project-specific sources use project-linked cursors.
 - Source logs are the stable proof layer. Readers own untouched logs. The tagger
   owns tagged copies.
+- Cursors live in filesystem state and advance only after the stage they govern
+  succeeds: fetch after source capture, tagging after the selected tagging set
+  succeeds, and report after report generation succeeds.
 - The worklist is derived from filesystem state; it is not a durable queue.
 - Synthesis is where cross-source project understanding happens.
 - Reports are outputs, not sources of truth for future reasoning unless their
   backing synthesis/report JSON is used.
+- New project initiation proposes profiles; the registry canonicalizes them; the
+  tagger obeys the registry. No new canonical project tag is silently created.
 - Action auditing is the next module, but it should remain read-only until the
   external write approval model is explicitly designed.
